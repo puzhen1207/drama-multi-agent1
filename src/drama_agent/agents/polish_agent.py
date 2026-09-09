@@ -7,6 +7,7 @@ from ..exceptions import with_retry
 from ..llm import chat, llm_available
 from ..logging_setup import get_logger
 from ..models import RetrievedMaterial
+from ..telemetry import record_stub_call
 from ..tools.text_processor import tool_normalize_text
 from .prompts import (
     COPYWRITING_SYSTEM_PROMPT,
@@ -124,6 +125,7 @@ def _run_task_generation(state: Dict[str, Any], forced_task_type: str) -> Dict[s
         content = chat(user_prompt=user_prompt, system_prompt=system_prompt)
     else:
         content = _stub_polish(task_type, topic, style, target_length, materials_text)
+        record_stub_call(len(user_prompt) + len(system_prompt), len(content))
 
     content = tool_normalize_text(content)
 
@@ -131,6 +133,7 @@ def _run_task_generation(state: Dict[str, Any], forced_task_type: str) -> Dict[s
     if not content or len(content.strip()) < 50:
         logger.warning("[Polish] 生成内容过短，补本地模板兜底")
         content = _stub_polish(task_type, topic, style, target_length, materials_text)
+        record_stub_call(len(user_prompt) + len(system_prompt), len(content))
 
     logger.info(f"[Polish] 生成内容 {len(content)} 字")
     return {"draft_content": content}

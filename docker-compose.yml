@@ -13,6 +13,7 @@ services:
       - ./data/sessions:/app/data/sessions
       - ./data/knowledge:/app/data/knowledge
       - ./data/user_memory:/app/data/user_memory
+      - ./data/evaluations:/app/data/evaluations
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]

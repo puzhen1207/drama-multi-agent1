@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     user_memory_top_k: int = Field(default=2, ge=0, le=10)
     enable_user_memory: bool = True
 
+    # ---------- 评测与人工评分 ----------
+    evaluation_path: str = "data/evaluations"
+
     # ---------- 合规审核 ----------
     sensitive_words_path: Optional[str] = None
     audit_max_iteration: int = Field(default=3, ge=1, le=10)
@@ -99,6 +102,12 @@ class Settings(BaseSettings):
     @property
     def absolute_user_memory_path(self) -> Path:
         p = PROJECT_ROOT / self.user_memory_path
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def absolute_evaluation_path(self) -> Path:
+        p = PROJECT_ROOT / self.evaluation_path
         p.mkdir(parents=True, exist_ok=True)
         return p
 

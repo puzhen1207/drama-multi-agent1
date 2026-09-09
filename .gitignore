@@ -49,6 +49,10 @@ data/sessions/*
 !data/sessions/.gitkeep
 data/user_memory/*
 !data/user_memory/.gitkeep
+data/evaluations/*
+!data/evaluations/.gitkeep
+evals/results/*
+!evals/results/.gitkeep
 
 # Logs
 *.log
@@ -61,6 +65,7 @@ desktop.ini
 
 # Test / coverage
 .pytest_cache/
+.pytest-tmp/
 .coverage
 htmlcov/
 .mypy_cache/

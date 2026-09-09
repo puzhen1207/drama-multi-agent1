@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import difflib
 import time
 from typing import Any, Callable, Dict, List, Literal, Optional
 
@@ -25,7 +26,15 @@ from .config import settings
 from .exceptions import DramaAgentError
 from .logging_setup import get_logger
 from .memory import get_session_manager
-from .models import AuditResult, FinalResponse, ParsedTask, ReflectionEntry
+from .models import (
+    AuditResult,
+    FinalResponse,
+    ParsedTask,
+    ReflectionEntry,
+    RevisionRecord,
+    WorkflowMetrics,
+)
+from .telemetry import record_node, record_retrieval, start_run_telemetry
 
 logger = get_logger("graph")
 
@@ -56,6 +65,7 @@ class WorkflowGraphState(TypedDict, total=False):
     error_info: Annotated[str, _overwrite]
     need_more_retrieval: bool
     node_failed: Annotated[str, _overwrite]
+    revision_history: Annotated[List[Dict[str, Any]], _overwrite]
 
 
 # ============= 事件发射（前端可视化用）=============
@@ -85,6 +95,9 @@ def _safe_node(
     try:
         result = func(state) or {}
         dt_ms = (time.time() - t0) * 1000
+        record_node(name, dt_ms)
+        if name == "retrieve_node":
+            record_retrieval(len(result.get("retrieved_materials") or []))
         logger.info(f"node[{name}] ok 耗时={dt_ms:.0f}ms")
         _emit(ctx, {
             "type": "node_done",
@@ -95,10 +108,14 @@ def _safe_node(
         })
         return result
     except DramaAgentError as e:
+        dt_ms = (time.time() - t0) * 1000
+        record_node(name, dt_ms, str(e))
         logger.warning(f"node[{name}] DramaAgentError: {e}")
         _emit(ctx, {"type": "node_error", "node": name, "error": str(e)})
         return {"degrade_mode": True, "error_info": str(e), "node_failed": name}
     except Exception as e:
+        dt_ms = (time.time() - t0) * 1000
+        record_node(name, dt_ms, f"{type(e).__name__}: {e}")
         logger.exception(f"node[{name}] 未预期异常: {e}")
         _emit(ctx, {"type": "node_error", "node": name, "error": f"{type(e).__name__}: {e}"})
         return {
@@ -132,6 +149,43 @@ def _node_output_summary(name: str, result: Dict[str, Any]) -> str:
     except Exception:
         pass
     return "节点完成"
+
+
+def _audit_score(audit: Any) -> float:
+    if audit is None:
+        return 0.0
+    value = getattr(audit, "score", 0.0) if not isinstance(audit, dict) else audit.get("score", 0.0)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _issue_summaries(audit: Any) -> List[str]:
+    issues = getattr(audit, "issues", []) if not isinstance(audit, dict) else audit.get("issues", [])
+    result: List[str] = []
+    for issue in issues or []:
+        if isinstance(issue, dict):
+            level = issue.get("level", "")
+            category = issue.get("category", "")
+            suggestion = issue.get("suggestion", "")
+        else:
+            level = getattr(issue, "level", "")
+            category = getattr(issue, "category", "")
+            suggestion = getattr(issue, "suggestion", "")
+        result.append(f"[{level}] {category}: {suggestion}".strip()[:240])
+    return result
+
+
+def _make_unified_diff(before: str, after: str) -> str:
+    lines = list(difflib.unified_diff(
+        before.splitlines(),
+        after.splitlines(),
+        fromfile="修改前",
+        tofile="修改后",
+        lineterm="",
+    ))
+    return "\n".join(lines[:160])[:12000]
 
 
 # ============= 路由决策 =============
@@ -228,10 +282,29 @@ def _build_workflow_graph(ctx: Dict[str, Any]):
         return {"draft_content": state.get("raw_input", "")}
 
     def rewrite_node(state: WorkflowGraphState) -> Dict[str, Any]:
-        return _safe_node(ctx, run_rewrite, "rewrite_node", dict(state))
+        before = state.get("draft_content", "")
+        before_audit = state.get("audit_result")
+        result = _safe_node(ctx, run_rewrite, "rewrite_node", dict(state))
+        after = str(result.get("draft_content", before))
+        history = list(state.get("revision_history") or [])
+        history.append(RevisionRecord(
+            iteration=int(state.get("iteration_count") or 0),
+            before_content=before[:6000],
+            after_content=after[:6000],
+            before_score=_audit_score(before_audit),
+            issues=_issue_summaries(before_audit),
+            unified_diff=_make_unified_diff(before, after),
+        ).model_dump())
+        result["revision_history"] = history
+        return result
 
     def audit_node(state: WorkflowGraphState) -> Dict[str, Any]:
-        return _safe_node(ctx, run_audit, "audit_node", dict(state))
+        result = _safe_node(ctx, run_audit, "audit_node", dict(state))
+        history = list(state.get("revision_history") or [])
+        if history and history[-1].get("after_score") is None:
+            history[-1] = {**history[-1], "after_score": _audit_score(result.get("audit_result"))}
+            result["revision_history"] = history
+        return result
 
     builder = StateGraph(WorkflowGraphState)
     builder.add_node("parse_node", parse_node)
@@ -280,6 +353,7 @@ def run_workflow_with_events(
 ) -> FinalResponse:
     """流式：运行工作流，通过 event_callback 逐事件通知调用方（前端 SSE）。"""
     t0 = time.time()
+    telemetry = start_run_telemetry()
     ctx: Dict[str, Any] = {"event_callback": event_callback}
 
     sm = get_session_manager()
@@ -316,6 +390,7 @@ def run_workflow_with_events(
         "error_info": "",
         "need_more_retrieval": False,
         "node_failed": "",
+        "revision_history": [],
     }
 
     try:
@@ -327,11 +402,13 @@ def run_workflow_with_events(
         _emit(ctx, {"type": "workflow_error", "error": str(e)})
 
     dt_ms = (time.time() - t0) * 1000
+    metrics_dict = telemetry.snapshot(dt_ms)
     _emit(ctx, {
         "type": "workflow_done",
         "ts": time.time(),
         "elapsed_ms": round(dt_ms, 1),
         "session_id": session.session_id,
+        "metrics": metrics_dict,
     })
 
     has_error = bool(state.get("error_info"))
@@ -364,34 +441,20 @@ def run_workflow_with_events(
     try:
         reflection_entry: Optional[ReflectionEntry] = None
         iteration = int(state.get("iteration_count") or 0)
-        if audit_result is not None and iteration > 1:
-            issues_found: List[str] = []
-            try:
-                issues = (
-                    getattr(audit_result, "issues", [])
-                    if not isinstance(audit_result, dict)
-                    else audit_result.get("issues", [])
-                )
-                for issue in issues:
-                    if isinstance(issue, dict):
-                        issues_found.append(
-                            f"[{issue.get('level', '')}] {issue.get('suggestion', '')[:40]}"
-                        )
-                    else:
-                        issues_found.append(str(issue)[:80])
-            except Exception:
-                pass
+        revision_records = [
+            RevisionRecord.model_validate(item)
+            for item in (state.get("revision_history") or [])
+        ]
+        if revision_records:
+            first_revision = revision_records[0]
+            last_revision = revision_records[-1]
             reflection_entry = ReflectionEntry(
                 session_id=session.session_id,
-                original_content=content[:300],
-                revision_content=content[:300],
-                audit_score_before=0.0,
-                audit_score_after=float(
-                    getattr(audit_result, "score", 0)
-                    if not isinstance(audit_result, dict)
-                    else audit_result.get("score", 0)
-                ),
-                issues_found=issues_found,
+                original_content=first_revision.before_content[:300],
+                revision_content=last_revision.after_content[:300],
+                audit_score_before=first_revision.before_score,
+                audit_score_after=last_revision.after_score or _audit_score(audit_result),
+                issues_found=first_revision.issues,
                 iteration=iteration,
             )
 
@@ -418,6 +481,11 @@ def run_workflow_with_events(
         session_id=session.session_id,
         has_context=has_context,
         user_profile_summary=profile_text if profile_text else None,
+        metrics=WorkflowMetrics.model_validate(metrics_dict),
+        revisions=[
+            RevisionRecord.model_validate(item)
+            for item in (state.get("revision_history") or [])
+        ],
     )
 
 

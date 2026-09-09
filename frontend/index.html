@@ -331,6 +331,27 @@
     font-size: 0.85em; font-weight: 700; margin-right: 6px;
     background: rgba(255,255,255,0.08);
   }
+  .evidence-panel {
+    margin-top: 14px; padding: 16px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: rgba(0,0,0,0.14);
+  }
+  .evidence-title { font-size: 0.9em; font-weight: 700; margin-bottom: 10px; }
+  .metric-grid, .rating-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px;
+  }
+  .metric-item { padding: 9px; border-radius: 8px; background: rgba(0,0,0,0.18); font-size: 0.78em; }
+  .metric-item b { display:block; margin-top: 3px; color: var(--text); font-family: var(--mono); }
+  .revision-diff {
+    max-height: 260px; overflow: auto; padding: 10px; border-radius: 8px;
+    background: rgba(0,0,0,0.28); color: var(--text-muted); white-space: pre-wrap;
+    font: 12px/1.55 var(--mono); margin-top: 8px;
+  }
+  .rating-grid label { color: var(--text-muted); font-size: 0.78em; }
+  .rating-grid select, .review-notes {
+    width: 100%; margin-top: 5px; padding: 8px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--bg-input); color: var(--text);
+  }
+  .review-notes { margin: 10px 0; resize: vertical; min-height: 54px; }
 
   .empty-state {
     text-align: center; padding: 40px 16px; color: var(--text-dim);
@@ -1212,7 +1233,7 @@ const QUICK = [
 ];
 
 let nodeState = {}, nodeDurations = {}, skippedNodes = new Set();
-let eventCount = 0, isRunning = false, lastContent = "", lastQuestion = "";
+let eventCount = 0, isRunning = false, lastContent = "", lastQuestion = "", lastResultData = null;
 let sessionId = localStorage.getItem("drama_session_id") || null;
 let userId = localStorage.getItem("drama_user_id") || ("u_" + Math.random().toString(36).slice(2, 10));
 let apiToken = localStorage.getItem("drama_api_token") || "";
@@ -1671,6 +1692,7 @@ function renderResult(data) {
   }
 
   lastContent = content;
+  lastResultData = data;
   emptyEl.style.display = "none";
   wrapper.style.display = "block";
   hint.textContent = content.length + " 字";
@@ -1725,7 +1747,79 @@ function renderResult(data) {
   }
 
   document.getElementById("result-content-wrapper").innerHTML =
-    `<div class="result-content">${formatContent(content)}</div>${auditHtml}`;
+    `<div class="result-content">${formatContent(content)}</div>${auditHtml}` +
+    renderMetrics(data.metrics || {}) + renderRevisions(data.revisions || []) + renderHumanReview();
+}
+
+function renderMetrics(metrics) {
+  if (!metrics || !Object.keys(metrics).length) return "";
+  const failed = metrics.llm_failed_calls || 0;
+  return `<div class="evidence-panel">
+    <div class="evidence-title">📊 本次运行证据</div>
+    <div class="metric-grid">
+      <div class="metric-item">总耗时<b>${((metrics.elapsed_ms || 0) / 1000).toFixed(2)} s</b></div>
+      <div class="metric-item">Token 用量<b>${metrics.total_tokens || 0}${metrics.usage_estimated ? "（估算）" : ""}</b></div>
+      <div class="metric-item">LLM 调用 / 失败<b>${metrics.llm_calls || 0} / ${failed}</b></div>
+      <div class="metric-item">Stub 调用<b>${metrics.stub_calls || 0}</b></div>
+      <div class="metric-item">检索素材<b>${metrics.retrieved_count || 0}</b></div>
+      <div class="metric-item">节点异常<b>${(metrics.node_errors || []).length}</b></div>
+    </div>
+  </div>`;
+}
+
+function renderRevisions(revisions) {
+  if (!Array.isArray(revisions) || !revisions.length) return "";
+  return `<div class="evidence-panel">
+    <div class="evidence-title">🧾 审核修改前后（最多展示 3 轮）</div>
+    ${revisions.slice(0, 3).map((item, index) => `<details ${index === 0 ? "open" : ""}>
+      <summary>第 ${item.iteration || index + 1} 轮 · 评分 ${Number(item.before_score || 0).toFixed(2)} → ${item.after_score == null ? "-" : Number(item.after_score).toFixed(2)}</summary>
+      ${(item.issues || []).length ? `<div class="audit-meta">${(item.issues || []).map(escapeHtml).join("<br>")}</div>` : ""}
+      <pre class="revision-diff">${escapeHtml(item.unified_diff || "本轮文本没有可显示的行级变化")}</pre>
+    </details>`).join("")}
+  </div>`;
+}
+
+function renderHumanReview() {
+  const fields = [
+    ["hook", "开头钩子"], ["pacing", "剧情节奏"],
+    ["character_consistency", "人物一致性"], ["shootability", "可拍摄性"],
+    ["compliance", "内容合规"],
+  ];
+  const options = [1,2,3,4,5].map(v => `<option value="${v}" ${v === 3 ? "selected" : ""}>${v}</option>`).join("");
+  return `<div class="evidence-panel" id="human-review-panel">
+    <div class="evidence-title">🧑‍⚖️ 人工五维评分（1–5 分）</div>
+    <div class="rating-grid">${fields.map(([key, label]) => `<label>${label}<select id="rating-${key}">${options}</select></label>`).join("")}</div>
+    <textarea class="review-notes" id="rating-notes" maxlength="2000" placeholder="可选：记录具体优缺点，便于后续复盘"></textarea>
+    <button class="btn btn-primary" onclick="submitHumanReview()">提交评分</button>
+  </div>`;
+}
+
+async function submitHumanReview() {
+  if (!lastResultData) return;
+  const getScore = key => Number(document.getElementById("rating-" + key).value);
+  const payload = {
+    user_id: userId,
+    session_id: sessionId || "",
+    case_id: "interactive",
+    mode: "full_workflow",
+    hook: getScore("hook"),
+    pacing: getScore("pacing"),
+    character_consistency: getScore("character_consistency"),
+    shootability: getScore("shootability"),
+    compliance: getScore("compliance"),
+    notes: document.getElementById("rating-notes").value.trim(),
+  };
+  try {
+    const response = await fetch("/v1/evaluations/human", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error((await response.text()) || "提交失败");
+    const button = document.querySelector("#human-review-panel button");
+    if (button) { button.textContent = "已提交"; button.disabled = true; }
+    toast("人工评分已记录", "success");
+  } catch (error) {
+    toast("评分提交失败：" + error.message, "error");
+  }
 }
 
 function formatContent(text) {

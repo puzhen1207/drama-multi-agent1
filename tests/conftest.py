@@ -18,6 +18,7 @@ def isolated_stub_runtime(tmp_path, monkeypatch):
     """所有单元测试都离线、无真实凭据，并使用独立临时存储。"""
     from drama_agent import config
     import drama_agent.memory as memory_module
+    import drama_agent.evaluation_store as evaluation_store_module
     import drama_agent.tools.embedding as embedding_module
     import drama_agent.tools.user_memory as user_memory_module
     import drama_agent.tools.vector_retriever as vector_module
@@ -26,6 +27,7 @@ def isolated_stub_runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(config.settings, "api_user_tokens_json", SecretStr(""))
     monkeypatch.setattr(config.settings, "vector_index_path", str(tmp_path / "faiss_index"))
     monkeypatch.setattr(config.settings, "user_memory_path", str(tmp_path / "user_memory"))
+    monkeypatch.setattr(config.settings, "evaluation_path", str(tmp_path / "evaluations"))
 
     def _use_hash_embedding(self):
         self.model = None
@@ -37,8 +39,10 @@ def isolated_stub_runtime(tmp_path, monkeypatch):
     vector_module._vector_store = None
     user_memory_module._user_memory_store = None
     memory_module._session_manager = None
+    evaluation_store_module._store = None
     yield
     embedding_module._provider = None
     vector_module._vector_store = None
     user_memory_module._user_memory_store = None
     memory_module._session_manager = None
+    evaluation_store_module._store = None

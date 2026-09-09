@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from .config import settings
 from .exceptions import LLMServiceError, LLMTimeoutError, with_retry
 from .logging_setup import get_logger
+from .telemetry import record_llm_call, record_stub_call
 
 logger = get_logger("llm")
 
@@ -104,6 +105,7 @@ def _call_http_api(messages: List[Dict[str, Any]], temperature: float = 0.7) -> 
     """调用 OpenAI 兼容接口；未配置时抛出 LLMServiceError（走 stub 路径）。"""
     if not llm_available():
         raise LLMServiceError("LLM 未配置有效 API Key")
+    prompt_chars = sum(len(str(m.get("content", ""))) for m in messages)
     try:
         t0 = time.time()
         key = settings.llm_api_key.get_secret_value()
@@ -126,10 +128,18 @@ def _call_http_api(messages: List[Dict[str, Any]], temperature: float = 0.7) -> 
             content = data["choices"][0]["message"]["content"]
             if not content:
                 raise LLMServiceError("LLM 返回空内容")
+            record_llm_call(
+                prompt_chars=prompt_chars,
+                completion_chars=len(str(content)),
+                usage=data.get("usage") if isinstance(data, dict) else None,
+                success=True,
+            )
             return str(content)
     except httpx.TimeoutException as e:
+        record_llm_call(prompt_chars=prompt_chars, success=False)
         raise LLMTimeoutError(f"LLM 超时: {type(e).__name__}") from e
     except httpx.HTTPStatusError as e:
+        record_llm_call(prompt_chars=prompt_chars, success=False)
         status = e.response.status_code
         text = e.response.text[:300]
         if status in (429, 503, 502, 500):
@@ -138,6 +148,7 @@ def _call_http_api(messages: List[Dict[str, Any]], temperature: float = 0.7) -> 
             raise LLMServiceError(f"LLM 鉴权失败（{status}），请检查 API Key 是否正确") from e
         raise LLMServiceError(f"LLM 调用失败 status={status}: {text}") from e
     except Exception as e:
+        record_llm_call(prompt_chars=prompt_chars, success=False)
         raise LLMServiceError(f"LLM 调用失败: {type(e).__name__}: {e}") from e
 
 
@@ -160,7 +171,9 @@ def chat(
         except Exception as e:
             logger.warning(f"LLM 调用失败，进入 stub 模式: {e}")
     logger.warning("LLM 不可用（未配置 API Key），进入本地 stub 模式")
-    return _stub_chat(user_prompt, system_prompt)
+    stub = _stub_chat(user_prompt, system_prompt)
+    record_stub_call(len(user_prompt) + len(system_prompt), len(stub))
+    return stub
 
 
 def chat_structured(

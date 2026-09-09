@@ -59,6 +59,32 @@ class AuditResult(BaseModel):
             return 0.0
 
 
+class RevisionRecord(BaseModel):
+    """一次审核驱动重写的前后对照。"""
+
+    iteration: int = 0
+    before_content: str = ""
+    after_content: str = ""
+    before_score: float = 0.0
+    after_score: Optional[float] = None
+    issues: List[str] = Field(default_factory=list)
+    unified_diff: str = ""
+
+
+class WorkflowMetrics(BaseModel):
+    elapsed_ms: float = 0.0
+    node_durations_ms: Dict[str, float] = Field(default_factory=dict)
+    node_errors: List[str] = Field(default_factory=list)
+    llm_calls: int = 0
+    llm_failed_calls: int = 0
+    stub_calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    usage_estimated: bool = False
+    retrieved_count: int = 0
+
+
 # ===== 会话 / 用户画像（记忆模块）=====
 
 
@@ -170,6 +196,8 @@ class FinalResponse(BaseModel):
     session_id: Optional[str] = None
     has_context: bool = False
     user_profile_summary: Optional[str] = None
+    metrics: Optional[WorkflowMetrics] = None
+    revisions: List[RevisionRecord] = Field(default_factory=list)
 
 
 class WorkflowState(BaseModel):
@@ -203,3 +231,4 @@ class WorkflowState(BaseModel):
     error_info: str = ""
     degrade_mode: bool = False
     node_failed: str = ""
+    revision_history: List[Dict[str, Any]] = Field(default_factory=list)

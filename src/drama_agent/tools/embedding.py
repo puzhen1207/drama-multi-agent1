@@ -40,6 +40,9 @@ class EmbeddingProvider:
         self._load_model()
 
     def _load_model(self) -> None:
+        if (settings.embedding_provider or "").lower() in {"hash", "hash_fallback", "offline"}:
+            logger.info(f"[Embedding] 按配置使用哈希向量（dim={self.dim}）")
+            return
         try:
             from sentence_transformers import SentenceTransformer  # type: ignore
 

@@ -23,6 +23,7 @@
 - [REST API](#rest-api)
 - [MCP 工具](#mcp-工具)
 - [测试](#测试)
+- [效果评测](#效果评测)
 - [常见问题](#常见问题)
 - [开发指南](#开发指南)
 - [Roadmap](#roadmap)
@@ -48,6 +49,9 @@
 - **会话记忆**：支持多轮对话、用户画像学习、反思日志与会话持久化（JSON）。
 - **知识库检索**：支持将本地素材构建为 FAISS 向量索引，并在生成前召回相关上下文。
 - **合规审核**：规则引擎 + LLM 语义审核双轨并行，审核未通过时触发重写。
+- **效果证据链**：记录节点耗时、Token、失败次数、检索数量和审核修改前后差异。
+- **三模式基准评测**：内置 120 条固定样本，对比单提示词、仅 RAG 与完整工作流。
+- **人工五维评分**：在 Web UI 对钩子、节奏、人物一致性、可拍摄性和合规性评分。
 - **多种调用方式**：Web UI、REST API、SSE 流式接口、CLI、MCP Server、Docker 均可运行。
 
 ---
@@ -110,6 +114,9 @@ drama-multi-agent/
 │   ├── graph.py                # LangGraph 工作流编排与节点包装
 │   ├── llm.py                  # OpenAI 兼容 LLM 客户端
 │   ├── config.py               # 全局配置（pydantic-settings，读取 .env）
+│   ├── evaluation.py           # 三模式评测执行与结果汇总
+│   ├── evaluation_store.py     # 人工评分 JSONL 存储
+│   ├── telemetry.py            # 耗时、Token、失败与检索指标
 │   ├── models.py               # Pydantic 数据模型
 │   ├── memory.py               # 会话记忆、用户画像、反思日志
 │   ├── mcp_server.py           # MCP Server（stdio）
@@ -120,8 +127,13 @@ drama-multi-agent/
 │   └── tools/                  # 向量检索 / 合规 / 文本处理 / 个人记忆 / embedding / 注册中心
 ├── scripts/
 │   ├── build_knowledge.py      # 构建 FAISS 知识库索引
+│   ├── build_evaluation_dataset.py # 重建固定的 120 条评测集
+│   ├── run_evaluation.py       # 运行三模式对照评测
 │   └── api_test.py             # API 快速测试脚本
 ├── tests/                      # pytest 单元测试
+├── evals/
+│   ├── dataset.jsonl           # 120 条固定中文评测样本
+│   └── results/                # 本地评测输出（默认不提交）
 ├── data/
 │   ├── knowledge/              # 自定义素材（剧本 / 文案 / 人设 等）
 │   ├── faiss_index/            # FAISS 向量索引
@@ -315,9 +327,10 @@ FAISS 索引维度 384 与当前 embedding 1024 不一致
 1. 输入短剧创作需求。
 2. 点击实时生成，观察每个 Agent 的执行过程（SSE 事件流）。
 3. 在结果区查看完整生成内容与合规审核结果。
-4. 预览满意后，点击结果工具栏中的「保存到记忆库」。
-5. 在弹窗中确认完整问答内容，再选择是否保存。
-6. 后续相似问题会自动召回个人记忆作为参考。
+4. 查看本次运行耗时、Token、调用失败、检索数，以及最多三轮修改前后差异。
+5. 对钩子、节奏、人物一致性、可拍摄性和合规性提交 1–5 分人工评价。
+6. 预览满意后，点击结果工具栏中的「保存到记忆库」。
+7. 后续相似问题会自动召回个人记忆作为参考。
 
 个人记忆库支持：
 
@@ -431,6 +444,14 @@ GET  /v1/async/{task_id}
 | PUT | `/v1/memory/{memory_id}` | 更新单条记忆 |
 | DELETE | `/v1/memory/{memory_id}` | 删除单条记忆 |
 
+### 效果评测接口
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/v1/evaluations/human` | 提交一次五维人工评分 |
+| GET | `/v1/evaluations/human` | 查询当前用户的人工评分明细 |
+| GET | `/v1/evaluations/summary` | 查询各维度与各模式的平均分 |
+
 ---
 
 ## MCP 工具
@@ -486,6 +507,33 @@ API 测试：
 ```bash
 PYTHONPATH=src python scripts/api_test.py http://127.0.0.1:8000
 ```
+
+---
+
+## 效果评测
+
+`evals/dataset.jsonl` 固定包含 120 条样本，覆盖文案、大纲、答疑和审核四类任务。
+每个样本会分别运行以下三种模式：
+
+- `single_prompt`：单次通用提示词，不检索、不执行审核重写。
+- `rag_only`：解析并检索素材后生成，不执行审核重写。
+- `full_workflow`：运行完整的解析、检索、分类生成、审核与重写工作流。
+
+运行完整对照：
+
+```bash
+PYTHONPATH=src python scripts/run_evaluation.py
+```
+
+快速离线验证评测管线（不调用真实 LLM，也不加载 embedding 模型）：
+
+```bash
+PYTHONPATH=src python scripts/run_evaluation.py --offline --limit 3
+```
+
+逐条结果和汇总分别写入 `evals/results/*.jsonl` 与 `*-summary.json`。汇总包含成功率、
+规则合规率、审核预期准确率、平均与 P95 延迟、平均 Token、迭代次数、关键词覆盖率及 LLM 失败次数。
+这些自动指标用于稳定回归，不等同于内容质量结论；质量比较应结合 Web UI 中的五维人工评分。
 
 ---
 

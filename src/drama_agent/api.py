@@ -43,6 +43,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .config import PROJECT_ROOT, settings
+from .evaluation_store import HumanReview, get_human_review_store
 from .graph import list_tools, run_workflow, run_workflow_with_events
 from .identifiers import SAFE_IDENTIFIER_PATTERN, validate_identifier
 from .logging_setup import setup_logging
@@ -120,6 +121,12 @@ class ImportMemoryRequest(BaseModel):
     user_id: str = Field("guest", pattern=SAFE_IDENTIFIER_PATTERN)
     memories: List[Dict[str, Any]] = Field(default_factory=list)
     skip_duplicates: bool = True
+
+
+class HumanReviewRequest(HumanReview):
+    """交互页面或离线评测提交的五维人工评分。"""
+
+    user_id: str = Field("guest", pattern=SAFE_IDENTIFIER_PATTERN)
 
 
 def _configured_user_tokens() -> Dict[str, str]:
@@ -412,6 +419,37 @@ def get_async_status(
         data=task.get("result"),
         error=task.get("error"),
     )
+
+
+# ============= 评测：人工五维评分 =============
+
+
+@app.post("/v1/evaluations/human")
+def save_human_review(req: HumanReviewRequest, request: Request) -> Dict[str, Any]:
+    user_id = _authorize_user(request, req.user_id)
+    review = HumanReview.model_validate({**req.model_dump(), "user_id": user_id})
+    item = get_human_review_store().append(review)
+    return {"status": "ok", "review": item}
+
+
+@app.get("/v1/evaluations/human")
+def list_human_reviews(
+    request: Request,
+    user_id: Optional[str] = Query(default=None, pattern=SAFE_IDENTIFIER_PATTERN),
+    limit: int = Query(default=200, ge=1, le=1000),
+) -> Dict[str, Any]:
+    effective_user_id = _authorize_user(request, user_id)
+    items = get_human_review_store().list(effective_user_id, limit=limit)
+    return {"total": len(items), "reviews": items}
+
+
+@app.get("/v1/evaluations/summary")
+def human_review_summary(
+    request: Request,
+    user_id: Optional[str] = Query(default=None, pattern=SAFE_IDENTIFIER_PATTERN),
+) -> Dict[str, Any]:
+    effective_user_id = _authorize_user(request, user_id)
+    return get_human_review_store().summary(effective_user_id)
 
 
 # ============= 记忆模块：会话管理 =============
