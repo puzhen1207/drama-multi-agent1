@@ -24,6 +24,7 @@ class RunTelemetry:
 
     def snapshot(self, elapsed_ms: Optional[float] = None) -> Dict[str, Any]:
         elapsed = elapsed_ms if elapsed_ms is not None else (time.time() - self.started_at) * 1000
+        successful_calls = max(0, self.llm_calls - self.llm_failed_calls)
         return {
             "elapsed_ms": round(float(elapsed), 1),
             "node_durations_ms": {
@@ -31,6 +32,7 @@ class RunTelemetry:
             },
             "node_errors": list(self.node_errors),
             "llm_calls": self.llm_calls,
+            "llm_successful_calls": successful_calls,
             "llm_failed_calls": self.llm_failed_calls,
             "stub_calls": self.stub_calls,
             "prompt_tokens": self.prompt_tokens,

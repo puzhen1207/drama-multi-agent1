@@ -63,6 +63,29 @@ def test_stub_rows_are_excluded_from_quality_statistics():
     assert mode["success_rate"] is None
 
 
+def test_recovered_real_llm_retry_remains_quality_eligible(monkeypatch):
+    import drama_agent.evaluation as evaluation_module
+    from drama_agent.telemetry import record_llm_call
+
+    def recovered_generation(state):
+        record_llm_call(prompt_chars=100, success=False)
+        record_llm_call(
+            prompt_chars=100,
+            completion_chars=80,
+            usage={"prompt_tokens": 25, "completion_tokens": 20, "total_tokens": 45},
+            success=True,
+        )
+        return {"draft_content": "这是一段经过真实模型重试后生成的合规短剧推广内容。"}
+
+    monkeypatch.setattr(evaluation_module, "run_copywriting", recovered_generation)
+    case = EvaluationCase(id="recovered", task_type="copywriting", prompt="写推广文案")
+    row = evaluate_case(case, "single_prompt", strict_llm=True)
+
+    assert row["quality_eligible"] is True
+    assert row["metrics"]["llm_successful_calls"] == 1
+    assert row["metrics"]["llm_failed_calls"] == 1
+
+
 def test_audit_case_records_expected_outcome():
     case = EvaluationCase(
         id="audit-risk", task_type="audit", prompt="请审核：详细展示自杀教程和实施步骤",

@@ -199,11 +199,19 @@ def evaluate_case(
 
     content = result.pop("content")
     metrics = result.get("metrics") or {}
-    if strict_llm and (metrics.get("stub_calls", 0) or metrics.get("llm_failed_calls", 0)):
-        raise RuntimeError("评测完整性失败：检测到 Stub 或失败的 LLM 调用")
+    successful_llm_calls = int(
+        metrics.get(
+            "llm_successful_calls",
+            int(metrics.get("llm_calls", 0)) - int(metrics.get("llm_failed_calls", 0)),
+        )
+    )
+    if strict_llm and (metrics.get("stub_calls", 0) or successful_llm_calls <= 0):
+        raise RuntimeError("评测完整性失败：未获得真实 LLM 成功结果或检测到 Stub")
 
     compliance = _compliance_snapshot(content)
-    quality_eligible = not metrics.get("stub_calls", 0) and not metrics.get("llm_failed_calls", 0)
+    # 真实请求在网络抖动或空响应后重试成功，仍属于可评测样本；失败次数单独作为
+    # 稳定性指标报告。只有 Stub 或最终没有任何真实成功调用才污染质量统计。
+    quality_eligible = not metrics.get("stub_calls", 0) and successful_llm_calls > 0
     predicted_audit_pass = result.get("audit_passed")
     normalized_success = (
         bool(result.get("pipeline_success"))
@@ -234,6 +242,24 @@ def evaluate_case(
 def summarize_results(
     results: List[Dict[str, Any]], metadata: Dict[str, Any] | None = None
 ) -> Dict[str, Any]:
+    def is_quality_eligible(row: Dict[str, Any]) -> bool:
+        explicit = row.get("quality_eligible")
+        if explicit is not None:
+            return bool(explicit)
+        metrics = row.get("metrics") or {}
+        if metrics.get("stub_calls", 0):
+            return False
+        if "llm_calls" not in metrics and "llm_successful_calls" not in metrics:
+            # 兼容第一优先级修复前产生的历史结果文件。
+            return not bool(metrics.get("llm_failed_calls", 0))
+        successful = int(
+            metrics.get(
+                "llm_successful_calls",
+                int(metrics.get("llm_calls", 0)) - int(metrics.get("llm_failed_calls", 0)),
+            )
+        )
+        return successful > 0
+
     summary: Dict[str, Any] = {
         "total_runs": len(results),
         "error_runs": sum(bool(row.get("error")) for row in results),
@@ -246,11 +272,7 @@ def summarize_results(
         rows = [row for row in results if row.get("mode") == mode]
         valid = [
             row for row in rows
-            if not row.get("error") and row.get(
-                "quality_eligible",
-                not (row.get("metrics") or {}).get("stub_calls", 0)
-                and not (row.get("metrics") or {}).get("llm_failed_calls", 0),
-            )
+            if not row.get("error") and is_quality_eligible(row)
         ]
         if not rows:
             continue
