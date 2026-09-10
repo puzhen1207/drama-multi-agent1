@@ -4,7 +4,6 @@ from __future__ import annotations
 import re
 from typing import Any, Dict
 
-from ..exceptions import with_retry
 from ..llm import chat_structured, llm_available
 from ..logging_setup import get_logger
 from ..models import ParsedTask
@@ -14,7 +13,6 @@ from .prompts import PARSER_FEW_SHOTS, PARSER_SYSTEM_PROMPT
 logger = get_logger("parser_agent")
 
 
-@with_retry
 def run_parse(state: Dict[str, Any]) -> Dict[str, Any]:
     """LangGraph 节点：解析用户原始输入 → 返回含 parsed_task 的 dict。"""
     raw_input = state.get("raw_input") or ""

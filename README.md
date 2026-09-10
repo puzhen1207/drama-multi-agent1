@@ -512,7 +512,9 @@ PYTHONPATH=src python scripts/api_test.py http://127.0.0.1:8000
 
 ## 效果评测
 
-`evals/dataset.jsonl` 固定包含 120 条样本，覆盖文案、大纲、答疑和审核四类任务。
+`evals/dataset.jsonl` 固定包含 120 条互不重复的样本，覆盖文案、大纲、答疑和审核四类任务。
+90 条生成样本除指令关键词外，还标注 `expected_source_titles` 与 `grounding_terms`，分别衡量
+检索是否命中预期知识来源，以及生成结果是否真正使用了知识库中的方法点。
 生成类样本使用同一个确定性解析结果和同一套任务提示词，只逐步增加实验变量：
 
 - `single_prompt`：单次分类生成，不检索、不执行审核重写。
@@ -531,6 +533,9 @@ PYTHONPATH=src python scripts/run_evaluation.py
 
 正式模式默认禁止 Stub，并固定温度为 `0`、单次最大输出为 1200 Token、总预算为
 100 万 Token。API 失败会被记录为失败样本，不会把本地模板混入质量统计。
+LLM 传输重试只在 HTTP 层执行，节点层不再叠加整链重试；结构化 JSON 解析拥有单独且较小的
+修复次数。评测会把剩余 Token 预算传入单个样本，并在每次 LLM 请求前按最大输出量预留额度，
+额度不足时立即以 `budget_stopped` 停止。
 每完成一组都会立即追加 JSONL 并更新汇总；中断后可继续：
 
 ```bash
@@ -550,9 +555,25 @@ PYTHONPATH=src python scripts/run_evaluation.py --offline --limit 3
 ```
 
 逐条结果、运行清单和汇总分别写入 `evals/results/*.jsonl`、`*-manifest.json` 与
-`*-summary.json`。运行清单记录模型、温度、Token 上限、数据集哈希和 Git 提交。汇总包含成功率、
+`*-summary.json`。运行清单记录模型、温度、Token 上限、数据集与知识库哈希、检索/重试参数和 Git 提交。汇总包含成功率、
 规则合规率、审核预期准确率、平均与 P95 延迟、平均 Token、迭代次数、关键词覆盖率及 LLM 失败次数。
+汇总还包含知识点覆盖率与预期来源 Recall@K。
 这些自动指标用于稳定回归，不等同于内容质量结论；质量比较应结合 Web UI 中的五维人工评分。
+
+可在不调用 LLM 的情况下独立验证检索器：
+
+```bash
+PYTHONPATH=src python scripts/evaluate_retrieval.py --top-k 3
+```
+
+完整三模式评测结束后，生成隐藏模式名称的人工盲评包与单独解盲密钥：
+
+```bash
+PYTHONPATH=src python scripts/build_blind_review.py evals/results/evaluation-YYYYMMDD-HHMMSS.jsonl
+```
+
+评分人员只接触 `blind-review.jsonl`；完成评分后再使用 `blind-review-key.json` 统计各模式表现，
+避免看到 `single_prompt`、`rag_only` 或 `full_workflow` 名称造成主观偏差。
 
 ---
 

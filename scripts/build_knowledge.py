@@ -92,6 +92,11 @@ def main() -> None:
     if args.rebuild and output_dir.exists():
         import shutil
         shutil.rmtree(output_dir, ignore_errors=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / ".gitkeep").write_text(
+            "# 运行时 FAISS 索引目录（由 build_knowledge.py 或启动时自动生成）\n",
+            encoding="utf-8",
+        )
         print(f"[INFO] 已清空索引目录：{output_dir}")
 
     vs = HierarchicalVectorStore(index_dir=output_dir)

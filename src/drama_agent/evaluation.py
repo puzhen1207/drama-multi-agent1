@@ -27,6 +27,8 @@ class EvaluationCase(BaseModel):
     task_type: str
     prompt: str
     expected_terms: List[str] = Field(default_factory=list)
+    expected_source_titles: List[str] = Field(default_factory=list)
+    grounding_terms: List[str] = Field(default_factory=list)
     expected_audit_pass: bool | None = None
     notes: str = ""
 
@@ -67,6 +69,14 @@ def _term_coverage(content: str, terms: Iterable[str]) -> float | None:
     if not expected:
         return None
     return round(sum(1 for term in expected if term in content) / len(expected), 3)
+
+
+def _source_recall(retrieved_titles: Iterable[str], expected_titles: Iterable[str]) -> float | None:
+    expected = [title for title in expected_titles if title]
+    if not expected:
+        return None
+    retrieved = set(retrieved_titles)
+    return round(sum(1 for title in expected if title in retrieved) / len(expected), 3)
 
 
 def _timed_node(
@@ -121,8 +131,12 @@ def _run_generation_case(
     use_rag: bool,
     use_audit_loop: bool,
     strict_llm: bool,
+    max_total_tokens: int | None,
 ) -> Dict[str, Any]:
-    telemetry = start_run_telemetry(strict_llm=strict_llm)
+    telemetry = start_run_telemetry(
+        strict_llm=strict_llm,
+        max_total_tokens=max_total_tokens,
+    )
     t0 = time.time()
     state = _base_state(case)
     if use_rag:
@@ -144,6 +158,10 @@ def _run_generation_case(
 
     elapsed_ms = (time.time() - t0) * 1000
     content = str(state.get("draft_content") or "")
+    retrieved_titles = [
+        str(getattr(item, "title", "") if not isinstance(item, dict) else item.get("title", ""))
+        for item in (state.get("retrieved_materials") or [])
+    ]
     passed = bool(getattr(audit_result, "passed", False)) if audit_result is not None else bool(content)
     return {
         "content": content,
@@ -153,11 +171,19 @@ def _run_generation_case(
         "metrics": telemetry.snapshot(elapsed_ms),
         "audit_score": getattr(audit_result, "score", None),
         "audit_passed": getattr(audit_result, "passed", None),
+        "retrieved_titles": retrieved_titles,
     }
 
 
-def _run_audit_case(case: EvaluationCase, strict_llm: bool) -> Dict[str, Any]:
-    telemetry = start_run_telemetry(strict_llm=strict_llm)
+def _run_audit_case(
+    case: EvaluationCase,
+    strict_llm: bool,
+    max_total_tokens: int | None,
+) -> Dict[str, Any]:
+    telemetry = start_run_telemetry(
+        strict_llm=strict_llm,
+        max_total_tokens=max_total_tokens,
+    )
     t0 = time.time()
     state = _base_state(case)
     state["draft_content"] = case.prompt
@@ -181,6 +207,7 @@ def evaluate_case(
     *,
     strict_llm: bool = True,
     repetition: int = 1,
+    max_total_tokens: int | None = None,
 ) -> Dict[str, Any]:
     if mode not in VALID_MODES:
         raise ValueError(f"未知评测模式 {mode!r}；可选值：{', '.join(VALID_MODES)}")
@@ -188,13 +215,14 @@ def evaluate_case(
         raise ValueError(f"{case.task_type} 样本不适用于 {mode} 模式")
 
     if case.task_type == "audit":
-        result = _run_audit_case(case, strict_llm)
+        result = _run_audit_case(case, strict_llm, max_total_tokens)
     else:
         result = _run_generation_case(
             case,
             use_rag=mode in {"rag_only", "full_workflow"},
             use_audit_loop=mode == "full_workflow",
             strict_llm=strict_llm,
+            max_total_tokens=max_total_tokens,
         )
 
     content = result.pop("content")
@@ -213,6 +241,7 @@ def evaluate_case(
     # 稳定性指标报告。只有 Stub 或最终没有任何真实成功调用才污染质量统计。
     quality_eligible = not metrics.get("stub_calls", 0) and successful_llm_calls > 0
     predicted_audit_pass = result.get("audit_passed")
+    retrieved_titles = result.get("retrieved_titles") or []
     normalized_success = (
         bool(result.get("pipeline_success"))
         if case.task_type == "audit"
@@ -229,6 +258,10 @@ def evaluate_case(
         "success": normalized_success,
         "quality_eligible": quality_eligible,
         "term_coverage": _term_coverage(content, case.expected_terms),
+        "grounding_term_coverage": _term_coverage(content, case.grounding_terms),
+        "retrieval_source_recall": _source_recall(
+            retrieved_titles, case.expected_source_titles
+        ),
         "compliance": compliance,
         "expected_audit_pass": case.expected_audit_pass,
         "audit_expectation_correct": (
@@ -279,6 +312,14 @@ def summarize_results(
         latencies = [float((row.get("metrics") or {}).get("elapsed_ms", 0.0)) for row in valid]
         tokens = [int((row.get("metrics") or {}).get("total_tokens", 0)) for row in valid]
         coverages = [float(row["term_coverage"]) for row in valid if row.get("term_coverage") is not None]
+        grounding_coverages = [
+            float(row["grounding_term_coverage"])
+            for row in valid if row.get("grounding_term_coverage") is not None
+        ]
+        source_recalls = [
+            float(row["retrieval_source_recall"])
+            for row in valid if row.get("retrieval_source_recall") is not None
+        ]
         audit_rows = [row for row in valid if row.get("audit_expectation_correct") is not None]
         summary["modes"][mode] = {
             "runs": len(rows),
@@ -297,6 +338,13 @@ def summarize_results(
             "mean_tokens": round(statistics.fmean(tokens), 1) if tokens else None,
             "mean_iterations": round(statistics.fmean(float(row.get("iterations", 0)) for row in valid), 2) if valid else None,
             "mean_term_coverage": round(statistics.fmean(coverages), 3) if coverages else None,
+            "mean_grounding_term_coverage": (
+                round(statistics.fmean(grounding_coverages), 3)
+                if grounding_coverages else None
+            ),
+            "mean_retrieval_source_recall": (
+                round(statistics.fmean(source_recalls), 3) if source_recalls else None
+            ),
             "audit_expectation_accuracy": round(
                 sum(bool(row["audit_expectation_correct"]) for row in audit_rows) / len(audit_rows), 3
             ) if audit_rows else None,

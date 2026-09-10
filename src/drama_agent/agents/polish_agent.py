@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from ..exceptions import LLMServiceError, with_retry
+from ..exceptions import LLMServiceError
 from ..llm import chat, llm_available
 from ..logging_setup import get_logger
 from ..models import RetrievedMaterial
@@ -42,7 +42,6 @@ def run_rewrite(state: Dict[str, Any]) -> Dict[str, Any]:
 run_polish = run_rewrite
 
 
-@with_retry
 def _run_task_generation(state: Dict[str, Any], forced_task_type: str) -> Dict[str, Any]:
     parsed = state.get("parsed_task")
     materials: List[Any] = state.get("retrieved_materials") or []

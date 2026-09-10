@@ -42,8 +42,20 @@ class LLMTimeoutError(RetryableError):
     code = "LLM_TIMEOUT"
 
 
-class LLMServiceError(RetryableError):
+class LLMServiceError(NonRetryableError):
     code = "LLM_SERVICE"
+
+
+class LLMResponseError(RetryableError):
+    """模型服务可达，但返回了空内容或不可用响应。"""
+
+    code = "LLM_RESPONSE"
+
+
+class TokenBudgetExceededError(NonRetryableError):
+    """继续调用可能超过本次运行的 Token 硬预算。"""
+
+    code = "TOKEN_BUDGET_EXCEEDED"
 
 
 class ValidationError(NonRetryableError):
@@ -60,7 +72,7 @@ class EmptyMaterialError(NonRetryableError):
 
 RETRYABLE_EXCEPTIONS = (
     LLMTimeoutError,
-    LLMServiceError,
+    LLMResponseError,
     RetrievalError,
     TimeoutError,
     ConnectionError,

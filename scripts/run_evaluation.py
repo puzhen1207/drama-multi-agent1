@@ -27,11 +27,22 @@ from drama_agent.evaluation import (  # noqa: E402
     summarize_results,
 )
 from drama_agent.llm import llm_available  # noqa: E402
+from drama_agent.exceptions import TokenBudgetExceededError  # noqa: E402
 from drama_agent.telemetry import current_telemetry  # noqa: E402
 
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _directory_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    if not path.exists():
+        return digest.hexdigest()
+    for file_path in sorted(item for item in path.rglob("*") if item.is_file()):
+        digest.update(file_path.relative_to(path).as_posix().encode("utf-8"))
+        digest.update(file_path.read_bytes())
+    return digest.hexdigest()
 
 
 def _git_commit() -> str:
@@ -156,12 +167,18 @@ def main() -> int:
         "started_at": time.time(),
         "dataset": str(dataset),
         "dataset_sha256": _sha256(dataset),
+        "knowledge_sha256": _directory_sha256(settings.absolute_knowledge_path),
         "git_commit": _git_commit(),
         "llm_base_url": settings.llm_base_url,
         "llm_model": settings.llm_model,
         "temperature": settings.llm_temperature,
         "max_output_tokens": settings.llm_max_tokens,
         "max_total_tokens": args.max_total_tokens,
+        "llm_max_retries": settings.llm_max_retries,
+        "llm_structured_retries": settings.llm_structured_retries,
+        "embedding_model": settings.embedding_model,
+        "retrieve_top_k": settings.retrieve_top_k,
+        "rerank_top_k": settings.rerank_top_k,
         "modes": list(args.modes),
         "repetitions": args.repetitions,
         "strict_llm": strict_llm,
@@ -174,8 +191,10 @@ def main() -> int:
     if args.resume and paths["manifest"].exists():
         old = json.loads(paths["manifest"].read_text(encoding="utf-8"))
         checks = (
-            "dataset_sha256", "plan_sha256", "llm_model", "temperature",
-            "max_output_tokens", "modes", "repetitions",
+            "dataset_sha256", "knowledge_sha256", "plan_sha256", "llm_model",
+            "temperature", "max_output_tokens", "llm_max_retries",
+            "llm_structured_retries", "embedding_model", "retrieve_top_k",
+            "rerank_top_k", "modes", "repetitions",
         )
         mismatches = [name for name in checks if old.get(name) != metadata.get(name)]
         if mismatches:
@@ -198,10 +217,31 @@ def main() -> int:
             flush=True,
         )
         try:
+            budget_exhausted = False
             row = evaluate_case(
-                case, mode, strict_llm=strict_llm, repetition=repetition
+                case,
+                mode,
+                strict_llm=strict_llm,
+                repetition=repetition,
+                max_total_tokens=max(0, args.max_total_tokens - used_tokens),
             )
+        except TokenBudgetExceededError as exc:
+            budget_exhausted = True
+            telemetry = current_telemetry()
+            row = {
+                "case_id": case.id,
+                "task_type": case.task_type,
+                "mode": mode,
+                "repetition": repetition,
+                "prompt": case.prompt,
+                "success": False,
+                "pipeline_success": False,
+                "quality_eligible": False,
+                "error": f"{type(exc).__name__}: {exc}",
+                "metrics": telemetry.snapshot() if telemetry else {},
+            }
         except Exception as exc:
+            budget_exhausted = False
             telemetry = current_telemetry()
             row = {
                 "case_id": case.id,
@@ -227,6 +267,9 @@ def main() -> int:
         checkpoint["completed_runs"] = len(current_results)
         checkpoint["remaining_runs"] = max(0, len(plan) - len(current_results))
         _atomic_json(paths["summary"], checkpoint)
+        if budget_exhausted:
+            stop_reason = f"token_budget_reservation_failed:{used_tokens}"
+            break
 
     current_results = list(results_by_key.values())
     summary = summarize_results(current_results, metadata)

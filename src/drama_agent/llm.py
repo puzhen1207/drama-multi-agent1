@@ -12,12 +12,22 @@ import time
 from typing import Any, Dict, List, Optional, Type
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError as PydanticValidationError
 
 from .config import settings
-from .exceptions import LLMServiceError, LLMTimeoutError, with_retry
+from .exceptions import (
+    LLMResponseError,
+    LLMServiceError,
+    LLMTimeoutError,
+    TokenBudgetExceededError,
+)
 from .logging_setup import get_logger
-from .telemetry import record_llm_call, record_stub_call, strict_llm_required
+from .telemetry import (
+    ensure_llm_token_budget,
+    record_llm_call,
+    record_stub_call,
+    strict_llm_required,
+)
 
 logger = get_logger("llm")
 
@@ -100,12 +110,34 @@ def _trim_to_context_window(messages: List[Dict[str, Any]], max_chars: int) -> L
 # ============= 底层 HTTP =============
 
 
-@with_retry
 def _call_http_api(messages: List[Dict[str, Any]], temperature: float = 0.7) -> str:
-    """调用 OpenAI 兼容接口；未配置时抛出 LLMServiceError（走 stub 路径）。"""
+    """调用 OpenAI 兼容接口；只在这一层执行传输/空响应重试。"""
     if not llm_available():
         raise LLMServiceError("LLM 未配置有效 API Key")
     prompt_chars = sum(len(str(m.get("content", ""))) for m in messages)
+    attempts = max(1, int(settings.llm_max_retries) + 1)
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        ensure_llm_token_budget(prompt_chars, int(settings.llm_max_tokens or 0))
+        try:
+            return _call_http_api_once(messages, temperature, prompt_chars)
+        except (LLMTimeoutError, LLMResponseError) as exc:
+            last_error = exc
+            if attempt >= attempts - 1:
+                raise
+            delay = min(2 ** attempt, 4)
+            logger.warning(
+                f"LLM 请求失败，将进行第 {attempt + 2}/{attempts} 次尝试：{exc}"
+            )
+            time.sleep(delay)
+    raise LLMResponseError(f"LLM 重试耗尽: {last_error}")
+
+
+def _call_http_api_once(
+    messages: List[Dict[str, Any]], temperature: float, prompt_chars: int
+) -> str:
+    """执行一次 HTTP 请求，不在节点或结构化解析层重复传输重试。"""
+    data: Dict[str, Any] | None = None
     try:
         t0 = time.time()
         key = settings.llm_api_key.get_secret_value()
@@ -129,7 +161,12 @@ def _call_http_api(messages: List[Dict[str, Any]], temperature: float = 0.7) -> 
             logger.info(f"LLM HTTP 调用完成 status={resp.status_code} 耗时 {dt_ms:.0f}ms, messages={len(messages)}")
             content = data["choices"][0]["message"]["content"]
             if not content:
-                raise LLMServiceError("LLM 返回空内容")
+                record_llm_call(
+                    prompt_chars=prompt_chars,
+                    usage=data.get("usage") if isinstance(data, dict) else None,
+                    success=False,
+                )
+                raise LLMResponseError("LLM 返回空内容")
             record_llm_call(
                 prompt_chars=prompt_chars,
                 completion_chars=len(str(content)),
@@ -140,6 +177,9 @@ def _call_http_api(messages: List[Dict[str, Any]], temperature: float = 0.7) -> 
     except httpx.TimeoutException as e:
         record_llm_call(prompt_chars=prompt_chars, success=False)
         raise LLMTimeoutError(f"LLM 超时: {type(e).__name__}") from e
+    except httpx.RequestError as e:
+        record_llm_call(prompt_chars=prompt_chars, success=False)
+        raise LLMTimeoutError(f"LLM 网络错误: {type(e).__name__}") from e
     except httpx.HTTPStatusError as e:
         record_llm_call(prompt_chars=prompt_chars, success=False)
         status = e.response.status_code
@@ -149,6 +189,8 @@ def _call_http_api(messages: List[Dict[str, Any]], temperature: float = 0.7) -> 
         if status in (401, 403):
             raise LLMServiceError(f"LLM 鉴权失败（{status}），请检查 API Key 是否正确") from e
         raise LLMServiceError(f"LLM 调用失败 status={status}: {text}") from e
+    except (LLMResponseError, LLMServiceError, LLMTimeoutError, TokenBudgetExceededError):
+        raise
     except Exception as e:
         record_llm_call(prompt_chars=prompt_chars, success=False)
         raise LLMServiceError(f"LLM 调用失败: {type(e).__name__}: {e}") from e
@@ -170,6 +212,8 @@ def chat(
         temp = temperature if temperature is not None else settings.llm_temperature
         try:
             return _call_http_api(messages, temperature=temp)
+        except TokenBudgetExceededError:
+            raise
         except Exception as e:
             if strict_llm_required():
                 raise LLMServiceError(f"严格评测模式禁止降级：{e}") from e
@@ -188,7 +232,7 @@ def chat_structured(
     system_prompt: str = "",
     few_shots: Optional[List[tuple]] = None,
     context_messages: Optional[List[Dict[str, Any]]] = None,
-    max_retries: int = 2,
+    max_retries: Optional[int] = None,
     **kwargs: Any,
 ) -> BaseModel:
     """结构化输出：要求 LLM 返回符合 Pydantic 模型的 JSON。"""
@@ -200,20 +244,21 @@ def chat_structured(
         + f"{schema}\n"
         + "不要返回任何解释性文字、markdown 代码块标记或额外内容，只返回一个合法 JSON 字符串。"
     )
+    parse_retries = settings.llm_structured_retries if max_retries is None else max_retries
     last_err: Optional[str] = None
-    for attempt in range(max_retries + 1):
+    for attempt in range(int(parse_retries) + 1):
+        raw = chat(
+            user_prompt=user_prompt,
+            system_prompt=full_system,
+            few_shots=few_shots,
+            context_messages=context_messages,
+            **kwargs,
+        )
         try:
-            raw = chat(
-                user_prompt=user_prompt,
-                system_prompt=full_system,
-                few_shots=few_shots,
-                context_messages=context_messages,
-                **kwargs,
-            )
             raw_clean = _strip_json(raw)
             obj = pydantic_cls.model_validate_json(raw_clean)
             return obj
-        except Exception as e:
+        except (PydanticValidationError, ValueError, json.JSONDecodeError) as e:
             last_err = str(e)
             logger.warning(f"结构化解析 attempt={attempt} 失败: {last_err}")
     raise LLMServiceError(f"结构化输出解析失败（多次重试后）: {last_err}")

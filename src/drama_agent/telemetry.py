@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextvars
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -21,6 +22,8 @@ class RunTelemetry:
     estimated_usage_calls: int = 0
     retrieved_count: int = 0
     strict_llm: bool = False
+    max_total_tokens: Optional[int] = None
+    token_budget_exhausted: bool = False
 
     def snapshot(self, elapsed_ms: Optional[float] = None) -> Dict[str, Any]:
         elapsed = elapsed_ms if elapsed_ms is not None else (time.time() - self.started_at) * 1000
@@ -40,6 +43,12 @@ class RunTelemetry:
             "total_tokens": self.total_tokens,
             "usage_estimated": self.estimated_usage_calls > 0,
             "retrieved_count": self.retrieved_count,
+            "token_budget_limit": self.max_total_tokens,
+            "token_budget_remaining": (
+                max(0, self.max_total_tokens - self.total_tokens)
+                if self.max_total_tokens is not None else None
+            ),
+            "token_budget_exhausted": self.token_budget_exhausted,
         }
 
 
@@ -48,8 +57,14 @@ _current: contextvars.ContextVar[Optional[RunTelemetry]] = contextvars.ContextVa
 )
 
 
-def start_run_telemetry(strict_llm: bool = False) -> RunTelemetry:
-    telemetry = RunTelemetry(strict_llm=strict_llm)
+def start_run_telemetry(
+    strict_llm: bool = False,
+    max_total_tokens: Optional[int] = None,
+) -> RunTelemetry:
+    telemetry = RunTelemetry(
+        strict_llm=strict_llm,
+        max_total_tokens=max_total_tokens,
+    )
     _current.set(telemetry)
     return telemetry
 
@@ -61,6 +76,24 @@ def current_telemetry() -> Optional[RunTelemetry]:
 def strict_llm_required() -> bool:
     telemetry = current_telemetry()
     return bool(telemetry and telemetry.strict_llm)
+
+
+def ensure_llm_token_budget(prompt_chars: int, max_completion_tokens: int) -> None:
+    """在请求前按最坏输出量预留额度，防止一次样本内部继续超支。"""
+    telemetry = current_telemetry()
+    if telemetry is None or telemetry.max_total_tokens is None:
+        return
+    estimated_prompt = math.ceil(max(0, prompt_chars) / 4)
+    projected = telemetry.total_tokens + estimated_prompt + max(0, max_completion_tokens)
+    if projected <= telemetry.max_total_tokens:
+        return
+    telemetry.token_budget_exhausted = True
+    from .exceptions import TokenBudgetExceededError
+
+    raise TokenBudgetExceededError(
+        f"Token 预算不足：剩余 {max(0, telemetry.max_total_tokens - telemetry.total_tokens)}，"
+        f"本次请求最多需要 {estimated_prompt + max(0, max_completion_tokens)}"
+    )
 
 
 def record_node(name: str, duration_ms: float, error: Optional[str] = None) -> None:

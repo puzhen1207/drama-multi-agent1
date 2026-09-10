@@ -25,6 +25,10 @@ def test_dataset_has_120_diverse_cases():
     cases = load_cases(root / "evals" / "dataset.jsonl")
     assert len(cases) == 120
     assert {case.task_type for case in cases} == {"copywriting", "content_organize", "qa", "audit"}
+    assert len({case.prompt for case in cases}) == 120
+    generation_cases = [case for case in cases if case.task_type != "audit"]
+    assert all(case.expected_source_titles for case in generation_cases)
+    assert all(case.grounding_terms for case in generation_cases)
 
 
 def test_single_prompt_evaluation_records_metrics():
@@ -119,6 +123,88 @@ def test_controlled_modes_only_change_retrieval(monkeypatch):
     evaluate_case(case, "single_prompt", strict_llm=False)
     evaluate_case(case, "rag_only", strict_llm=False)
     assert material_counts == [0, 1]
+
+
+def test_rag_metrics_measure_source_and_grounding(monkeypatch):
+    import drama_agent.evaluation as evaluation_module
+
+    monkeypatch.setattr(evaluation_module, "run_retrieve", lambda state: {
+        "retrieved_materials": [{
+            "title": "低成本拍摄方法", "content": "固定机位和画外音", "category": "制作"
+        }]
+    })
+    monkeypatch.setattr(evaluation_module, "run_qa", lambda state: {
+        "draft_content": "建议采用固定机位，并用画外音交代场外事件，降低拍摄成本。"
+    })
+    case = EvaluationCase(
+        id="rag-metric",
+        task_type="qa",
+        prompt="怎样低成本拍摄？",
+        expected_source_titles=["低成本拍摄方法"],
+        grounding_terms=["固定机位", "画外音"],
+    )
+    row = evaluate_case(case, "rag_only", strict_llm=False)
+    assert row["retrieval_source_recall"] == 1.0
+    assert row["grounding_term_coverage"] == 1.0
+
+
+def test_token_budget_stops_call_before_overspend():
+    import pytest
+
+    from drama_agent.exceptions import TokenBudgetExceededError
+    from drama_agent.telemetry import ensure_llm_token_budget, start_run_telemetry
+
+    telemetry = start_run_telemetry(strict_llm=True, max_total_tokens=100)
+    with pytest.raises(TokenBudgetExceededError, match="Token 预算不足"):
+        ensure_llm_token_budget(prompt_chars=100, max_completion_tokens=100)
+    assert telemetry.token_budget_exhausted is True
+
+
+def test_llm_nodes_do_not_stack_tenacity_retries():
+    from drama_agent.agents.audit_agent import run_audit
+    from drama_agent.agents.parser_agent import run_parse
+    from drama_agent.agents.polish_agent import _run_task_generation
+
+    assert not hasattr(run_parse, "retry")
+    assert not hasattr(run_audit, "retry")
+    assert not hasattr(_run_task_generation, "retry")
+
+
+def test_http_retry_count_is_centrally_bounded(monkeypatch):
+    import drama_agent.llm as llm_module
+    from drama_agent.exceptions import LLMResponseError
+
+    attempts = []
+
+    def flaky_once(messages, temperature, prompt_chars):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise LLMResponseError("empty")
+        return "真实结果"
+
+    monkeypatch.setattr(llm_module, "llm_available", lambda: True)
+    monkeypatch.setattr(llm_module, "_call_http_api_once", flaky_once)
+    monkeypatch.setattr(llm_module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(llm_module.settings, "llm_max_retries", 2)
+    assert llm_module._call_http_api([{"role": "user", "content": "测试"}], 0) == "真实结果"
+    assert len(attempts) == 3
+
+
+def test_blind_review_hides_mode_names():
+    from scripts.build_blind_review import build_packets
+
+    rows = [
+        {
+            "case_id": "case-1", "repetition": 1, "mode": mode,
+            "task_type": "copywriting", "prompt": "写文案", "content": f"内容-{mode}",
+            "quality_eligible": True,
+        }
+        for mode in ("single_prompt", "rag_only", "full_workflow")
+    ]
+    packets, key = build_packets(rows, seed=1)
+    assert len(packets) == 1
+    assert all("mode" not in candidate for candidate in packets[0]["candidates"])
+    assert set(key[0]["mapping"].values()) == {"single_prompt", "rag_only", "full_workflow"}
 
 
 def test_strict_mode_forbids_stub():
@@ -219,7 +305,10 @@ def test_evaluation_cli_checkpoints_and_resumes(tmp_path):
     summary_path = next(tmp_path.glob("evaluation-*-summary.json"))
     manifest_path = next(tmp_path.glob("evaluation-*-manifest.json"))
     assert json.loads(summary_path.read_text(encoding="utf-8"))["status"] == "complete"
-    assert json.loads(manifest_path.read_text(encoding="utf-8"))["strict_llm"] is False
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["strict_llm"] is False
+    assert manifest["knowledge_sha256"]
+    assert manifest["llm_max_retries"] >= 0
 
     resumed = subprocess.run(
         command[:2] + ["--offline", "--limit", "1", "--resume", str(result_path)],

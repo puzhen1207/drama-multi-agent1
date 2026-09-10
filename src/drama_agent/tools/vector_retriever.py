@@ -193,16 +193,21 @@ class HierarchicalVectorStore:
         )
         # 轻量重排：基于 query 与父块内容的词重叠
         results: List[RetrievedMaterial] = []
-        for pid, _ in ranked[: max(top_k_parent * 3, 10)]:
+        for pid, vector_sum in ranked[: max(top_k_parent * 3, 10)]:
             parent = self.parents[pid]
-            rerank_score = _light_rerank(query, parent["content"])
+            vector_score = vector_sum / max(1, parent_hits[pid])
+            lexical_score = _light_rerank(
+                query, f"{parent.get('title', '')} {parent['content']}"
+            )
+            # 词面重排只能辅助消歧，不能完全覆盖向量语义得分；否则同义表达会被误杀。
+            rerank_score = 0.75 * vector_score + 0.25 * lexical_score
             results.append(RetrievedMaterial(
                 material_id=pid,
                 title=parent.get("title", ""),
                 content=parent.get("content", ""),
                 category=parent.get("category", "unknown"),
-                score=float(rerank_score),
-                source="faiss+rerank",
+                score=round(float(rerank_score), 4),
+                source="faiss+hybrid_rerank",
             ))
         results.sort(key=lambda m: m.score, reverse=True)
         final = results[:top_k_parent]

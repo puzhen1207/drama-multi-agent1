@@ -76,6 +76,7 @@ class WorkflowMetrics(BaseModel):
     node_durations_ms: Dict[str, float] = Field(default_factory=dict)
     node_errors: List[str] = Field(default_factory=list)
     llm_calls: int = 0
+    llm_successful_calls: int = 0
     llm_failed_calls: int = 0
     stub_calls: int = 0
     prompt_tokens: int = 0
@@ -83,6 +84,9 @@ class WorkflowMetrics(BaseModel):
     total_tokens: int = 0
     usage_estimated: bool = False
     retrieved_count: int = 0
+    token_budget_limit: Optional[int] = None
+    token_budget_remaining: Optional[int] = None
+    token_budget_exhausted: bool = False
 
 
 # ===== 会话 / 用户画像（记忆模块）=====

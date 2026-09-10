@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from ..config import settings
-from ..exceptions import with_retry
 from ..llm import chat_structured, llm_available
 from ..logging_setup import get_logger
 from ..models import AuditIssue, AuditResult
@@ -15,7 +14,6 @@ from .prompts import AUDIT_SYSTEM_PROMPT, build_audit_user_prompt
 logger = get_logger("audit_agent")
 
 
-@with_retry
 def run_audit(state: Dict[str, Any]) -> Dict[str, Any]:
     text = state.get("draft_content") or ""
     iteration = int(state.get("iteration_count", 0) or 0)
