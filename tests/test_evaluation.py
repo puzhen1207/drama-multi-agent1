@@ -1,9 +1,18 @@
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from drama_agent.api import app
-from drama_agent.evaluation import EvaluationCase, evaluate_case, load_cases, summarize_results
+from drama_agent.evaluation import (
+    EvaluationCase,
+    applicable_modes,
+    evaluate_case,
+    load_cases,
+    summarize_results,
+)
 from drama_agent.graph import _make_unified_diff, run_workflow
 from drama_agent.models import AuditIssue, AuditResult, ParsedTask
 
@@ -22,9 +31,10 @@ def test_single_prompt_evaluation_records_metrics():
     case = EvaluationCase(
         id="demo", task_type="copywriting", prompt="为职场短剧写推广文案", expected_terms=["短剧"]
     )
-    row = evaluate_case(case, "single_prompt")
+    row = evaluate_case(case, "single_prompt", strict_llm=False)
     assert row["success"] is True
     assert row["metrics"]["stub_calls"] == 1
+    assert row["quality_eligible"] is False
     assert row["metrics"]["elapsed_ms"] >= 0
     assert "compliance" in row
 
@@ -41,13 +51,63 @@ def test_summary_compares_modes():
     assert summary["modes"]["full_workflow"]["mean_iterations"] == 1
 
 
+def test_stub_rows_are_excluded_from_quality_statistics():
+    rows = [{
+        "mode": "single_prompt", "success": True, "pipeline_success": True,
+        "quality_eligible": False, "metrics": {"stub_calls": 1, "total_tokens": 0},
+    }]
+    summary = summarize_results(rows)
+    mode = summary["modes"]["single_prompt"]
+    assert mode["runs"] == 1
+    assert mode["quality_eligible_runs"] == 0
+    assert mode["success_rate"] is None
+
+
 def test_audit_case_records_expected_outcome():
     case = EvaluationCase(
         id="audit-risk", task_type="audit", prompt="请审核：详细展示自杀教程和实施步骤",
         expected_audit_pass=False,
     )
-    row = evaluate_case(case, "rag_only")
+    assert applicable_modes(case, ("single_prompt", "rag_only", "full_workflow")) == ["full_workflow"]
+    row = evaluate_case(case, "full_workflow", strict_llm=False)
     assert row["audit_expectation_correct"] is True
+
+
+def test_audit_case_rejects_meaningless_rag_mode():
+    import pytest
+
+    case = EvaluationCase(id="audit", task_type="audit", prompt="请审核这段内容")
+    with pytest.raises(ValueError, match="不适用于"):
+        evaluate_case(case, "rag_only", strict_llm=False)
+
+
+def test_controlled_modes_only_change_retrieval(monkeypatch):
+    import drama_agent.evaluation as evaluation_module
+
+    material_counts = []
+    monkeypatch.setattr(evaluation_module, "run_retrieve", lambda state: {
+        "retrieved_materials": [{"title": "参考", "content": "素材", "category": "文案"}]
+    })
+    monkeypatch.setattr(evaluation_module, "run_copywriting", lambda state: (
+        material_counts.append(len(state.get("retrieved_materials") or []))
+        or {"draft_content": "这是一段合规且足够长的短剧推广内容，用于验证受控变量。"}
+    ))
+    case = EvaluationCase(id="controlled", task_type="copywriting", prompt="写推广文案")
+    evaluate_case(case, "single_prompt", strict_llm=False)
+    evaluate_case(case, "rag_only", strict_llm=False)
+    assert material_counts == [0, 1]
+
+
+def test_strict_mode_forbids_stub():
+    import pytest
+
+    from drama_agent.exceptions import LLMServiceError
+    from drama_agent.llm import chat
+    from drama_agent.telemetry import start_run_telemetry
+
+    start_run_telemetry(strict_llm=True)
+    with pytest.raises(LLMServiceError, match="严格评测"):
+        chat("连通性测试")
 
 
 def test_workflow_returns_runtime_evidence():
@@ -121,3 +181,26 @@ def test_human_review_rejects_out_of_range_score():
         "character_consistency": 3, "shootability": 3, "compliance": 3,
     }
     assert client.post("/v1/evaluations/human", json=payload).status_code == 422
+
+
+def test_evaluation_cli_checkpoints_and_resumes(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    command = [
+        sys.executable, str(root / "scripts" / "run_evaluation.py"),
+        "--offline", "--limit", "1", "--output-dir", str(tmp_path),
+    ]
+    first = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=30)
+    assert first.returncode == 0, first.stderr
+    result_path = next(tmp_path.glob("evaluation-*.jsonl"))
+    assert len(result_path.read_text(encoding="utf-8").splitlines()) == 3
+    summary_path = next(tmp_path.glob("evaluation-*-summary.json"))
+    manifest_path = next(tmp_path.glob("evaluation-*-manifest.json"))
+    assert json.loads(summary_path.read_text(encoding="utf-8"))["status"] == "complete"
+    assert json.loads(manifest_path.read_text(encoding="utf-8"))["strict_llm"] is False
+
+    resumed = subprocess.run(
+        command[:2] + ["--offline", "--limit", "1", "--resume", str(result_path)],
+        cwd=root, capture_output=True, text=True, timeout=30,
+    )
+    assert resumed.returncode == 0, resumed.stderr
+    assert len(result_path.read_text(encoding="utf-8").splitlines()) == 3

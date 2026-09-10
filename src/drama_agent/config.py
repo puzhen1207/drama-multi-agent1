@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     llm_timeout: int = Field(default=120, ge=5)
     llm_max_retries: int = Field(default=3, ge=0)
+    llm_max_tokens: Optional[int] = Field(default=None, ge=1)
 
     # ---------- Embedding ----------
     embedding_provider: str = "local"

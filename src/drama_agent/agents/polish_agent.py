@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from ..exceptions import with_retry
+from ..exceptions import LLMServiceError, with_retry
 from ..llm import chat, llm_available
 from ..logging_setup import get_logger
 from ..models import RetrievedMaterial
-from ..telemetry import record_stub_call
+from ..telemetry import record_stub_call, strict_llm_required
 from ..tools.text_processor import tool_normalize_text
 from .prompts import (
     COPYWRITING_SYSTEM_PROMPT,
@@ -124,6 +124,8 @@ def _run_task_generation(state: Dict[str, Any], forced_task_type: str) -> Dict[s
     if llm_available():
         content = chat(user_prompt=user_prompt, system_prompt=system_prompt)
     else:
+        if strict_llm_required():
+            raise LLMServiceError("严格评测模式禁止内容生成降级为 Stub")
         content = _stub_polish(task_type, topic, style, target_length, materials_text)
         record_stub_call(len(user_prompt) + len(system_prompt), len(content))
 
@@ -131,6 +133,8 @@ def _run_task_generation(state: Dict[str, Any], forced_task_type: str) -> Dict[s
 
     # 兜底：如果 LLM 意外返回短内容，补一个 stub
     if not content or len(content.strip()) < 50:
+        if strict_llm_required():
+            raise LLMServiceError("严格评测模式下模型输出过短，拒绝使用 Stub 补全")
         logger.warning("[Polish] 生成内容过短，补本地模板兜底")
         content = _stub_polish(task_type, topic, style, target_length, materials_text)
         record_stub_call(len(user_prompt) + len(system_prompt), len(content))

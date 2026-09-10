@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from .config import settings
 from .exceptions import LLMServiceError, LLMTimeoutError, with_retry
 from .logging_setup import get_logger
-from .telemetry import record_llm_call, record_stub_call
+from .telemetry import record_llm_call, record_stub_call, strict_llm_required
 
 logger = get_logger("llm")
 
@@ -115,6 +115,8 @@ def _call_http_api(messages: List[Dict[str, Any]], temperature: float = 0.7) -> 
             "messages": messages,
             "temperature": temperature,
         }
+        if settings.llm_max_tokens is not None:
+            payload["max_tokens"] = int(settings.llm_max_tokens)
         headers = {
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
@@ -169,7 +171,11 @@ def chat(
         try:
             return _call_http_api(messages, temperature=temp)
         except Exception as e:
+            if strict_llm_required():
+                raise LLMServiceError(f"严格评测模式禁止降级：{e}") from e
             logger.warning(f"LLM 调用失败，进入 stub 模式: {e}")
+    elif strict_llm_required():
+        raise LLMServiceError("严格评测模式要求有效且可用的 LLM 配置")
     logger.warning("LLM 不可用（未配置 API Key），进入本地 stub 模式")
     stub = _stub_chat(user_prompt, system_prompt)
     record_stub_call(len(user_prompt) + len(system_prompt), len(stub))

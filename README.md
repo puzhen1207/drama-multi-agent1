@@ -513,16 +513,34 @@ PYTHONPATH=src python scripts/api_test.py http://127.0.0.1:8000
 ## 效果评测
 
 `evals/dataset.jsonl` 固定包含 120 条样本，覆盖文案、大纲、答疑和审核四类任务。
-每个样本会分别运行以下三种模式：
+生成类样本使用同一个确定性解析结果和同一套任务提示词，只逐步增加实验变量：
 
-- `single_prompt`：单次通用提示词，不检索、不执行审核重写。
-- `rag_only`：解析并检索素材后生成，不执行审核重写。
-- `full_workflow`：运行完整的解析、检索、分类生成、审核与重写工作流。
+- `single_prompt`：单次分类生成，不检索、不执行审核重写。
+- `rag_only`：在相同生成流程上只增加公共知识库检索。
+- `full_workflow`：在相同 RAG 流程上增加审核与最多三轮重写。
+
+审核分类与 RAG 没有直接实验关系，因此 30 条审核样本只运行 `full_workflow`，验证审核准确率；
+90 条生成样本才进行三组对照。默认共执行 300 组，而不是把审核样本强行纳入无意义的 RAG 对照。
+评测进程会关闭个人记忆召回，避免历史用户数据污染实验。
 
 运行完整对照：
 
 ```bash
 PYTHONPATH=src python scripts/run_evaluation.py
+```
+
+正式模式默认禁止 Stub，并固定温度为 `0`、单次最大输出为 1200 Token、总预算为
+100 万 Token。API 失败会被记录为失败样本，不会把本地模板混入质量统计。
+每完成一组都会立即追加 JSONL 并更新汇总；中断后可继续：
+
+```bash
+PYTHONPATH=src python scripts/run_evaluation.py --resume evals/results/evaluation-YYYYMMDD-HHMMSS.jsonl
+```
+
+可按需要调整预算与重复次数：
+
+```bash
+PYTHONPATH=src python scripts/run_evaluation.py --max-total-tokens 100000 --repetitions 3
 ```
 
 快速离线验证评测管线（不调用真实 LLM，也不加载 embedding 模型）：
@@ -531,7 +549,8 @@ PYTHONPATH=src python scripts/run_evaluation.py
 PYTHONPATH=src python scripts/run_evaluation.py --offline --limit 3
 ```
 
-逐条结果和汇总分别写入 `evals/results/*.jsonl` 与 `*-summary.json`。汇总包含成功率、
+逐条结果、运行清单和汇总分别写入 `evals/results/*.jsonl`、`*-manifest.json` 与
+`*-summary.json`。运行清单记录模型、温度、Token 上限、数据集哈希和 Git 提交。汇总包含成功率、
 规则合规率、审核预期准确率、平均与 P95 延迟、平均 Token、迭代次数、关键词覆盖率及 LLM 失败次数。
 这些自动指标用于稳定回归，不等同于内容质量结论；质量比较应结合 Web UI 中的五维人工评分。
 

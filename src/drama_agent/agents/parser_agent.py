@@ -8,6 +8,7 @@ from ..exceptions import with_retry
 from ..llm import chat_structured, llm_available
 from ..logging_setup import get_logger
 from ..models import ParsedTask
+from ..telemetry import strict_llm_required
 from .prompts import PARSER_FEW_SHOTS, PARSER_SYSTEM_PROMPT
 
 logger = get_logger("parser_agent")
@@ -30,7 +31,12 @@ def run_parse(state: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"[Parser] 解析完成（LLM）：task_type={task.task_type}, topic={task.topic}")
             return {"parsed_task": task}
         except Exception as e:
+            if strict_llm_required():
+                raise
             logger.warning(f"[Parser] LLM 解析失败：{e}，走规则解析")
+
+    if strict_llm_required():
+        raise RuntimeError("严格评测模式禁止任务解析降级为规则模式")
 
     task = _rule_based_parse(raw_input)
     logger.info(f"[Parser] 解析完成（规则）：task_type={task.task_type}, topic={task.topic}")

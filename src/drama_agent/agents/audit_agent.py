@@ -9,6 +9,7 @@ from ..llm import chat_structured, llm_available
 from ..logging_setup import get_logger
 from ..models import AuditIssue, AuditResult
 from ..tools.compliance_engine import tool_sensitive_check
+from ..telemetry import strict_llm_required
 from .prompts import AUDIT_SYSTEM_PROMPT, build_audit_user_prompt
 
 logger = get_logger("audit_agent")
@@ -110,9 +111,13 @@ def run_audit(state: Dict[str, Any]) -> Dict[str, Any]:
                 degrade_mode=False,
             )
         except Exception as e:
+            if strict_llm_required():
+                raise
             logger.warning(f"[Audit] 语义审核失败，仅保留规则层结果：{e}")
             result = _rule_only_result(issues, passed_by_rule, rule_engine_hit, degrade=False)
     else:
+        if strict_llm_required():
+            raise RuntimeError("严格评测模式禁止语义审核降级为规则层")
         result = _rule_only_result(issues, passed_by_rule, rule_engine_hit, degrade=True)
 
     logger.info(

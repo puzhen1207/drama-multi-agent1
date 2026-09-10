@@ -20,6 +20,7 @@ class RunTelemetry:
     total_tokens: int = 0
     estimated_usage_calls: int = 0
     retrieved_count: int = 0
+    strict_llm: bool = False
 
     def snapshot(self, elapsed_ms: Optional[float] = None) -> Dict[str, Any]:
         elapsed = elapsed_ms if elapsed_ms is not None else (time.time() - self.started_at) * 1000
@@ -45,14 +46,19 @@ _current: contextvars.ContextVar[Optional[RunTelemetry]] = contextvars.ContextVa
 )
 
 
-def start_run_telemetry() -> RunTelemetry:
-    telemetry = RunTelemetry()
+def start_run_telemetry(strict_llm: bool = False) -> RunTelemetry:
+    telemetry = RunTelemetry(strict_llm=strict_llm)
     _current.set(telemetry)
     return telemetry
 
 
 def current_telemetry() -> Optional[RunTelemetry]:
     return _current.get()
+
+
+def strict_llm_required() -> bool:
+    telemetry = current_telemetry()
+    return bool(telemetry and telemetry.strict_llm)
 
 
 def record_node(name: str, duration_ms: float, error: Optional[str] = None) -> None:
