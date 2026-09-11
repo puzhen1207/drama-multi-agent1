@@ -46,6 +46,7 @@ from .config import PROJECT_ROOT, settings
 from .evaluation_store import HumanReview, get_human_review_store
 from .graph import list_tools, run_workflow, run_workflow_with_events
 from .identifiers import SAFE_IDENTIFIER_PATTERN, validate_identifier
+from .llm import llm_available
 from .logging_setup import setup_logging
 from .memory import get_session_manager
 from .models import FinalResponse
@@ -212,6 +213,7 @@ def health() -> Dict[str, Any]:
         user_memory_count = get_user_memory_store().count()
     except Exception:
         pass
+    llm_configured = llm_available()
     return {
         "status": "ok",
         "version": "2.1.0",
@@ -219,6 +221,11 @@ def health() -> Dict[str, Any]:
         "memory_module": True,
         "user_memory_enabled": settings.enable_user_memory,
         "user_memory_count": user_memory_count,
+        "llm": {
+            "configured": llm_configured,
+            "mode": "real_with_stub_fallback" if llm_configured else "stub",
+            "model": settings.llm_model if llm_configured else None,
+        },
         "embedding": embedding_status(),
     }
 

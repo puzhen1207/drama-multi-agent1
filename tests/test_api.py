@@ -14,13 +14,21 @@ client = TestClient(app)
 def test_health():
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
+    payload = resp.json()
+    assert payload["status"] == "ok"
+    assert payload["llm"]["mode"] in {"real_with_stub_fallback", "stub"}
+    assert isinstance(payload["llm"]["configured"], bool)
 
 
 def test_root_returns_html():
     resp = client.get("/")
     assert resp.status_code == 200
     assert "text/html" in resp.headers.get("content-type", "")
+    html = resp.text
+    assert 'id="llm-badge"' in html
+    assert 'role="tablist"' in html
+    assert 'aria-modal="true"' in html
+    assert "AbortController" in html
 
 
 def test_list_tools():

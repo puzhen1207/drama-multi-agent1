@@ -488,6 +488,7 @@
   }
 
   html { scrollbar-color: rgba(238,242,245,0.22) transparent; }
+  [hidden] { display: none !important; }
   body {
     background:
       linear-gradient(rgba(255,255,255,0.026) 1px, transparent 1px),
@@ -506,6 +507,7 @@
   .app {
     max-width: 1640px;
     padding: 0 16px 18px;
+    overflow-x: clip;
   }
   .topbar {
     position: sticky;
@@ -549,6 +551,27 @@
     white-space: nowrap;
   }
   .badge .dot { width: 6px; height: 6px; }
+  .badge-button {
+    appearance: none;
+    color: var(--text-muted);
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .badge-button:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
+    background: var(--surface-raised);
+  }
+  .badge.llm-real {
+    color: #69c7bb;
+    border-color: rgba(38,166,154,0.38);
+  }
+  .badge.llm-real .dot { background: #69c7bb; box-shadow: 0 0 7px rgba(105,199,187,0.55); }
+  .badge.llm-stub {
+    color: var(--accent);
+    border-color: rgba(214,167,63,0.42);
+  }
+  .badge.llm-stub .dot { background: var(--accent); }
 
   .progress-bar {
     height: 2px;
@@ -589,18 +612,21 @@
 
   .main-grid {
     align-items: start;
-    grid-template-columns: minmax(300px, 360px) minmax(380px, 0.78fr) minmax(500px, 1.1fr);
+    grid-template-columns: 1fr;
     gap: 12px;
   }
-  @media (min-width: 1280px) {
+  @media (min-width: 768px) and (max-width: 1359px) {
     .main-grid {
-      grid-template-columns: minmax(320px, 370px) minmax(420px, 0.82fr) minmax(560px, 1.18fr);
+      grid-template-columns: minmax(300px, 0.84fr) minmax(420px, 1.16fr);
     }
-  }
-  @media (min-width: 768px) and (max-width: 1179px) {
-    .main-grid { grid-template-columns: minmax(300px, 0.85fr) minmax(420px, 1.15fr); }
     .col-right { grid-column: 1 / -1; display: grid; grid-template-columns: 0.82fr 1.18fr; gap: 12px; }
     .panel-events { margin-bottom: 0 !important; }
+  }
+  @media (min-width: 1360px) {
+    .main-grid {
+      grid-template-columns: minmax(320px, 360px) minmax(390px, 0.84fr) minmax(500px, 1.16fr);
+    }
+    .col-right { display: block; grid-column: auto; }
   }
 
   .card {
@@ -627,7 +653,7 @@
     border: 1px solid rgba(212, 219, 228, 0.1);
     border-radius: 6px;
     background: rgba(17,20,25,0.72);
-    font-size: 0.7rem;
+    font-size: 0.75rem;
   }
 
   .input-wrap textarea {
@@ -652,7 +678,7 @@
   .quick-label {
     margin: 12px 0 7px;
     color: var(--text-muted);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     letter-spacing: 0;
   }
   .quick-actions {
@@ -683,8 +709,9 @@
     margin-top: 12px;
   }
   .btn-row .btn:first-child { grid-column: 1 / -1; }
+  .btn-row #btn-cancel { grid-column: 1 / -1; }
   .btn {
-    min-height: 34px;
+    min-height: 38px;
     padding: 8px 12px;
     border-radius: 7px;
     font-size: 0.82rem;
@@ -699,6 +726,16 @@
     transform: translateY(-1px);
     box-shadow: 0 10px 24px rgba(214, 167, 63, 0.24);
   }
+  .btn-danger {
+    color: #ffd3d3;
+    border-color: rgba(226,85,85,0.5);
+    background: rgba(226,85,85,0.13);
+  }
+  .btn-danger:hover:not(:disabled) {
+    color: #fff;
+    border-color: rgba(226,85,85,0.72);
+    background: rgba(226,85,85,0.22);
+  }
   .btn-ghost {
     background: #151920;
     border-color: rgba(212,219,228,0.13);
@@ -710,7 +747,7 @@
   }
   .kbd-hint {
     margin-top: 8px;
-    font-size: 0.68rem;
+    font-size: 0.75rem;
   }
 
   .workflow-panel { min-height: 146px; }
@@ -758,7 +795,7 @@
   }
   .flow-desc {
     margin-top: 1px;
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     text-align: left;
   }
   .flow-meta {
@@ -947,10 +984,10 @@
   }
   .footer {
     padding: 14px 0 2px;
-    font-size: 0.72rem;
+    font-size: 0.78rem;
   }
 
-  @media (max-width: 1179px) {
+  @media (max-width: 1359px) {
     .agent-strip { display: none; }
     .panel-result { min-height: 0; }
     .result-content {
@@ -961,6 +998,7 @@
   @media (max-width: 767px) {
     .app { padding: 0 12px 14px; }
     .topbar {
+      position: relative;
       margin: 0 -12px 10px;
       padding: 9px 12px;
       align-items: flex-start;
@@ -970,10 +1008,12 @@
     .brand h1 { font-size: 0.96rem; }
     .brand p { font-size: 0.7rem; }
     .topbar-meta { width: 100%; justify-content: flex-start; }
+    .badge-button { min-height: 44px; }
+    #session-badge, .version-badge { display: none !important; }
     .mobile-tabs {
       margin: 0 -12px 10px;
       padding: 8px 12px;
-      top: 84px;
+      top: 0;
       gap: 6px;
       overflow-x: auto;
     }
@@ -981,9 +1021,28 @@
       flex: 0 0 auto;
       min-width: 72px;
       padding: 8px 10px;
+      min-height: 44px;
     }
     .main-grid { display: block; }
     .card { padding: 12px; }
+    .input-wrap textarea { min-height: 170px; }
+    .quick-actions {
+      display: flex;
+      flex-direction: row;
+      max-height: none;
+      gap: 8px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 0 0 6px;
+      scroll-snap-type: x proximity;
+    }
+    .quick-chip {
+      flex: 0 0 min(72vw, 240px);
+      width: auto;
+      min-height: 68px;
+      scroll-snap-align: start;
+    }
+    .btn { min-height: 44px; }
     .col-input.tab-show { margin-bottom: 0; }
     .flow-pipeline { grid-template-columns: 1fr 1fr; }
     .stats-row.visible { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1000,6 +1059,29 @@
     }
   }
 
+  .char-count.warn { color: var(--accent); }
+  .result-tab-ready::after {
+    content: "";
+    width: 6px;
+    height: 6px;
+    margin-left: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px rgba(214,167,63,0.55);
+  }
+  .evidence-details > summary {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 720;
+    cursor: pointer;
+    list-style-position: inside;
+  }
+  .evidence-details[open] > summary { margin-bottom: 10px; }
+  :where(button, input, textarea, select, a, [tabindex]):focus-visible {
+    outline: 2px solid #6ad4c8;
+    outline-offset: 3px;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation-duration: 0.01ms !important;
@@ -1011,7 +1093,7 @@
 </style>
 </head>
 <body>
-<div class="app">
+<div class="app" id="app-shell">
   <header class="topbar">
     <div class="brand">
       <div class="brand-icon">🎬</div>
@@ -1021,54 +1103,56 @@
       </div>
     </div>
     <div class="topbar-meta">
-      <span class="badge" id="health-badge"><span class="dot"></span>检测中</span>
-      <span class="badge memory" id="memory-badge" onclick="openMemoryPanel()" title="点击查看个人记忆库"><span class="dot"></span><span id="memory-label">记忆 0</span></span>
+      <span class="badge" id="health-badge" role="status" aria-live="polite"><span class="dot"></span>服务检测中</span>
+      <span class="badge" id="llm-badge" role="status" aria-live="polite"><span class="dot"></span>LLM 检测中</span>
+      <button type="button" class="badge badge-button memory" id="memory-badge" onclick="openMemoryPanel()" title="查看个人记忆库"><span class="dot"></span><span id="memory-label">记忆 0</span></button>
       <span class="badge" id="embed-badge" style="display:none" title="向量检索降级中"><span class="dot"></span>检索降级</span>
-      <span class="badge" onclick="openUserSettings()" style="cursor:pointer" title="用户身份与记忆备份">👤 身份</span>
+      <button type="button" class="badge badge-button" onclick="openUserSettings()" title="用户身份与记忆备份">👤 身份</button>
       <span class="badge" id="session-badge" style="display:none"><span class="dot"></span><span id="session-label">会话</span></span>
-      <span class="badge">v2.1</span>
+      <span class="badge version-badge">v2.1</span>
     </div>
   </header>
 
-  <div class="progress-bar" id="progress-bar"><div class="fill"></div></div>
+  <div class="progress-bar" id="progress-bar" role="progressbar" aria-label="内容生成进度" aria-valuetext="等待开始"><div class="fill"></div></div>
 
   <div class="agent-strip" id="agent-strip"></div>
 
-  <div class="mobile-tabs" id="mobile-tabs">
-    <button class="tab-btn active" data-tab="input">输入</button>
-    <button class="tab-btn" data-tab="workflow">工作流</button>
-    <button class="tab-btn" data-tab="events">事件</button>
-    <button class="tab-btn" data-tab="result">结果</button>
+  <div class="mobile-tabs" id="mobile-tabs" role="tablist" aria-label="工作区域">
+    <button type="button" class="tab-btn active" id="tab-input" role="tab" aria-selected="true" aria-controls="panel-input" data-tab="input">输入</button>
+    <button type="button" class="tab-btn" id="tab-workflow" role="tab" aria-selected="false" aria-controls="panel-workflow" data-tab="workflow">工作流</button>
+    <button type="button" class="tab-btn" id="tab-events" role="tab" aria-selected="false" aria-controls="panel-events" data-tab="events">事件</button>
+    <button type="button" class="tab-btn" id="tab-result" role="tab" aria-selected="false" aria-controls="panel-result" data-tab="result">结果</button>
   </div>
 
   <div class="main-grid">
     <!-- 左：输入 -->
-    <div class="col-input">
+    <div class="col-input" id="panel-input" role="tabpanel" aria-labelledby="tab-input">
       <div class="card">
         <div class="card-header">
           <div class="card-title"><span class="icon">📝</span>创作需求</div>
         </div>
         <div class="input-wrap">
-          <textarea id="input" placeholder="描述你的短剧创作需求，例如：整理「霸总追妻」3集大纲，每集500字，突出爽点与反转…"></textarea>
-          <span class="char-count" id="char-count">0 字</span>
+          <textarea id="input" maxlength="10000" aria-label="短剧创作需求" placeholder="描述你的短剧创作需求，例如：整理「霸总追妻」3集大纲，每集500字，突出爽点与反转…"></textarea>
+          <span class="char-count" id="char-count" aria-live="polite">0 / 10000 字</span>
         </div>
         <div class="quick-label">快捷示例</div>
         <div class="quick-actions" id="quick-actions"></div>
         <div class="btn-row">
-          <button class="btn btn-primary" id="btn-stream" onclick="runStream()">实时生成（可视化）</button>
-          <button class="btn btn-ghost" id="btn-sync" onclick="runSync()">快速生成</button>
-          <button class="btn btn-ghost" onclick="clearAll()">清空</button>
+          <button type="button" class="btn btn-primary" id="btn-stream" onclick="runStream()" disabled title="展示每个智能体的执行过程">实时生成</button>
+          <button type="button" class="btn btn-danger" id="btn-cancel" onclick="cancelGeneration()" hidden>停止生成</button>
+          <button type="button" class="btn btn-ghost" id="btn-sync" onclick="runSync()" disabled title="不展示中间事件，直接等待最终结果">直接生成</button>
+          <button type="button" class="btn btn-ghost" id="btn-clear" onclick="clearAll()" disabled>清空输入</button>
         </div>
         <div class="kbd-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> 快速提交</div>
       </div>
     </div>
 
     <!-- 中：工作流 -->
-    <div class="col-center">
+    <div class="col-center" id="panel-workflow" role="tabpanel" aria-labelledby="tab-workflow">
       <div class="card">
         <div class="card-header">
           <div class="card-title"><span class="icon">🔄</span>Agent 工作流</div>
-          <span class="card-hint" id="workflow-hint">等待开始</span>
+          <span class="card-hint" id="workflow-hint" role="status" aria-live="polite">等待开始</span>
         </div>
         <div class="workflow-panel">
           <div class="flow-pipeline" id="flow-pipeline"></div>
@@ -1085,12 +1169,12 @@
 
     <!-- 右：事件 + 结果 -->
     <div class="col-right">
-      <div class="card panel-events" style="margin-bottom:18px">
+      <div class="card panel-events" id="panel-events" role="tabpanel" aria-labelledby="tab-events" style="margin-bottom:18px">
         <div class="card-header">
           <div class="card-title"><span class="icon">📋</span>实时事件</div>
           <span class="card-hint" id="events-hint">0 条</span>
         </div>
-        <div class="events-panel" id="events-panel">
+        <div class="events-panel" id="events-panel" role="log" aria-live="polite" aria-relevant="additions">
           <div class="empty-state">
             <div class="icon">⚡</div>
             <p>点击「实时生成」，此处展示每个 Agent 的执行过程</p>
@@ -1098,7 +1182,7 @@
         </div>
       </div>
 
-      <div class="card panel-result">
+      <div class="card panel-result" id="panel-result" role="tabpanel" aria-labelledby="tab-result">
         <div class="card-header">
           <div class="card-title"><span class="icon">✨</span>生成结果</div>
           <span class="card-hint" id="result-hint">尚无结果</span>
@@ -1108,7 +1192,7 @@
             <div class="icon">📖</div>
             <p>生成完成后，内容与合规报告将在此展示</p>
           </div>
-          <div id="result-wrapper" style="display:none">
+          <div id="result-wrapper" style="display:none" aria-live="polite">
             <div class="result-toolbar">
               <button class="btn btn-ghost" onclick="copyResult()">复制全文</button>
               <button class="btn btn-ghost" onclick="downloadResult()">下载 .txt</button>
@@ -1123,16 +1207,16 @@
 
   <footer class="footer">
     <p>LangGraph · FAISS · 个人记忆库 · <a href="/docs" target="_blank">API 文档</a></p>
-    <p style="margin-top:4px">未配置 LLM 时自动进入 Stub 演示模式，流程仍可完整跑通</p>
+    <p style="margin-top:4px" id="mode-hint">正在检测内容生成模式…</p>
   </footer>
 </div>
 
-<div class="toast-wrap" id="toast-wrap"></div>
+<div class="toast-wrap" id="toast-wrap" role="status" aria-live="polite" aria-atomic="false"></div>
 
 <!-- 保存到记忆库确认 -->
-<div class="modal-overlay" id="memory-save-modal">
-  <div class="modal">
-    <h3>🧠 确认保存到个人记忆库</h3>
+<div class="modal-overlay" id="memory-save-modal" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="memory-save-title">
+    <h3 id="memory-save-title">🧠 确认保存到个人记忆库</h3>
     <p>请先确认下方问答内容。保存后，下次遇到相似问题时，系统会自动参考这条历史问答来生成内容。</p>
     <div class="modal-preview" id="memory-save-preview"></div>
     <div class="modal-actions">
@@ -1143,9 +1227,9 @@
 </div>
 
 <!-- 记忆库列表 -->
-<div class="modal-overlay" id="memory-list-modal">
-  <div class="modal" style="width:min(760px,100%)">
-    <h3>📚 个人记忆库</h3>
+<div class="modal-overlay" id="memory-list-modal" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="memory-list-title" style="width:min(760px,100%)">
+    <h3 id="memory-list-title">📚 个人记忆库</h3>
     <p>展示全部已保存问答，支持编辑。相似提问时会自动召回参考。</p>
     <div class="memory-panel-list" id="memory-list-body">
       <div class="empty-state"><p>加载中…</p></div>
@@ -1157,16 +1241,16 @@
 </div>
 
 <!-- 用户身份 / 记忆备份 -->
-<div class="modal-overlay" id="user-settings-modal">
-  <div class="modal" style="width:min(520px,100%)">
-    <h3>👤 用户身份与记忆备份</h3>
+<div class="modal-overlay" id="user-settings-modal" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="user-settings-title" style="width:min(520px,100%)">
+    <h3 id="user-settings-title">👤 用户身份与记忆备份</h3>
     <p class="settings-hint">用户 ID 用于隔离个人记忆库。换浏览器前请先<strong>导出备份</strong>，在新环境导入并填写相同 ID 即可恢复记忆。</p>
     <div class="form-field">
-      <label>当前用户 ID</label>
+      <label for="settings-user-id">当前用户 ID</label>
       <input type="text" id="settings-user-id" maxlength="128" placeholder="u_xxxx">
     </div>
     <div class="form-field">
-      <label>API Bearer Token（服务端启用鉴权时填写）</label>
+      <label for="settings-api-token">API Bearer Token（服务端启用鉴权时填写）</label>
       <input type="password" id="settings-api-token" autocomplete="off" placeholder="留空表示本地免鉴权模式">
     </div>
     <div class="user-id-display" id="settings-user-id-hint"></div>
@@ -1185,21 +1269,21 @@
 </div>
 
 <!-- 编辑记忆 -->
-<div class="modal-overlay" id="memory-edit-modal">
-  <div class="modal" style="width:min(720px,100%)">
-    <h3>✏️ 编辑记忆</h3>
+<div class="modal-overlay" id="memory-edit-modal" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="memory-edit-title" style="width:min(720px,100%)">
+    <h3 id="memory-edit-title">✏️ 编辑记忆</h3>
     <p>修改后将更新向量索引（若问题有变），下次检索会按新内容匹配。</p>
     <input type="hidden" id="edit-memory-id" value="">
     <div class="form-field">
-      <label>标题（可选）</label>
+      <label for="edit-memory-title">标题（可选）</label>
       <input type="text" id="edit-memory-title" maxlength="200" placeholder="简短标题">
     </div>
     <div class="form-field">
-      <label>提问</label>
+      <label for="edit-memory-question">提问</label>
       <textarea id="edit-memory-question" rows="4" placeholder="历史提问"></textarea>
     </div>
     <div class="form-field">
-      <label>回答（完整内容）</label>
+      <label for="edit-memory-answer">回答（完整内容）</label>
       <textarea id="edit-memory-answer" rows="12" placeholder="历史回答"></textarea>
     </div>
     <div class="modal-actions">
@@ -1234,6 +1318,8 @@ const QUICK = [
 
 let nodeState = {}, nodeDurations = {}, skippedNodes = new Set();
 let eventCount = 0, isRunning = false, lastContent = "", lastQuestion = "", lastResultData = null;
+let activeController = null, elapsedTimer = null, runStartedAt = 0;
+const modalReturnFocus = new Map();
 let sessionId = localStorage.getItem("drama_session_id") || null;
 let userId = localStorage.getItem("drama_user_id") || ("u_" + Math.random().toString(36).slice(2, 10));
 let apiToken = localStorage.getItem("drama_api_token") || "";
@@ -1265,24 +1351,80 @@ function init() {
   document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.addEventListener("click", () => switchMobileTab(btn.dataset.tab));
   });
+  document.querySelectorAll(".modal-overlay").forEach(overlay => {
+    overlay.addEventListener("click", event => {
+      if (event.target === overlay) hideModal(overlay.id);
+    });
+  });
+  document.addEventListener("keydown", handleDialogKeydown);
   switchMobileTab("input");
 }
 
 function switchMobileTab(tab) {
   if (window.innerWidth > 767) return;
   document.querySelectorAll(".tab-btn").forEach(b => {
-    b.classList.toggle("active", b.dataset.tab === tab);
+    const selected = b.dataset.tab === tab;
+    b.classList.toggle("active", selected);
+    b.setAttribute("aria-selected", String(selected));
+    b.tabIndex = selected ? 0 : -1;
   });
   document.querySelector(".col-input").classList.toggle("tab-show", tab === "input");
   document.querySelector(".col-center").classList.toggle("tab-show", tab === "workflow");
   document.querySelector(".panel-events").classList.toggle("tab-show", tab === "events");
   document.querySelector(".panel-result").classList.toggle("tab-show", tab === "result");
+  const panels = {
+    input: document.querySelector(".col-input"),
+    workflow: document.querySelector(".col-center"),
+    events: document.querySelector(".panel-events"),
+    result: document.querySelector(".panel-result"),
+  };
+  Object.entries(panels).forEach(([name, panel]) => panel.setAttribute("aria-hidden", String(name !== tab)));
+}
+
+function showModal(id, focusSelector = "button, input, textarea, select") {
+  const overlay = document.getElementById(id);
+  if (!overlay) return;
+  modalReturnFocus.set(id, document.activeElement);
+  overlay.classList.add("show");
+  overlay.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => overlay.querySelector(focusSelector)?.focus());
+}
+
+function hideModal(id) {
+  const overlay = document.getElementById(id);
+  if (!overlay) return;
+  overlay.classList.remove("show");
+  overlay.setAttribute("aria-hidden", "true");
+  const returnTarget = modalReturnFocus.get(id);
+  modalReturnFocus.delete(id);
+  if (returnTarget && typeof returnTarget.focus === "function") returnTarget.focus();
+}
+
+function handleDialogKeydown(event) {
+  const shown = [...document.querySelectorAll(".modal-overlay.show")].pop();
+  if (!shown) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    hideModal(shown.id);
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const focusable = [...shown.querySelectorAll(
+    'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'
+  )].filter(element => element.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0], last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault(); last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault(); first.focus();
+  }
 }
 
 window.addEventListener("resize", () => {
   if (window.innerWidth > 767) {
     document.querySelectorAll(".col-input, .col-center, .panel-events, .panel-result")
-      .forEach(el => el.classList.remove("tab-show"));
+      .forEach(el => { el.classList.remove("tab-show"); el.removeAttribute("aria-hidden"); });
   } else {
     const active = document.querySelector(".tab-btn.active");
     switchMobileTab(active ? active.dataset.tab : "input");
@@ -1291,12 +1433,21 @@ window.addEventListener("resize", () => {
 
 async function checkHealth() {
   const badge = document.getElementById("health-badge");
+  const llmBadge = document.getElementById("llm-badge");
   const embedBadge = document.getElementById("embed-badge");
+  const modeHint = document.getElementById("mode-hint");
   try {
     const r = await fetch("/health");
     const d = await r.json();
     badge.className = "badge online";
-    badge.innerHTML = '<span class="dot"></span>服务在线';
+    badge.innerHTML = '<span class="dot"></span>后端在线';
+    const realLlm = Boolean(d.llm && d.llm.configured);
+    llmBadge.className = "badge " + (realLlm ? "llm-real" : "llm-stub");
+    llmBadge.innerHTML = `<span class="dot"></span>${realLlm ? "LLM 已配置" : "Stub 演示"}`;
+    llmBadge.title = realLlm ? `已配置模型：${d.llm.model || "未知"}；调用失败时可能降级` : "未配置真实 LLM，当前使用本地演示内容";
+    modeHint.textContent = realLlm
+      ? `已配置 ${d.llm.model || "真实模型"}；每次结果下方会显示真实调用与 Stub 证据`
+      : "当前为 Stub 演示模式；配置 LLM 后才能获得真实模型输出";
     if (typeof d.user_memory_count === "number") {
       document.getElementById("memory-label").textContent = "记忆 " + d.user_memory_count;
     }
@@ -1311,6 +1462,9 @@ async function checkHealth() {
   } catch {
     badge.className = "badge";
     badge.innerHTML = '<span class="dot"></span>离线';
+    llmBadge.className = "badge";
+    llmBadge.innerHTML = '<span class="dot"></span>LLM 未知';
+    modeHint.textContent = "无法连接后端，暂时不能确认内容生成模式";
   }
 }
 
@@ -1318,11 +1472,11 @@ function openUserSettings() {
   document.getElementById("settings-user-id").value = userId;
   document.getElementById("settings-api-token").value = apiToken;
   document.getElementById("settings-user-id-hint").textContent = "当前生效 ID：" + userId;
-  document.getElementById("user-settings-modal").classList.add("show");
+  showModal("user-settings-modal", "#settings-user-id");
 }
 
 function closeUserSettings() {
-  document.getElementById("user-settings-modal").classList.remove("show");
+  hideModal("user-settings-modal");
 }
 
 function applyUserId() {
@@ -1394,11 +1548,11 @@ function showMemoryPrompt() {
   preview.innerHTML =
     `<div class="preview-block"><div class="preview-label">提问</div>${escapeHtml(lastQuestion)}</div>` +
     `<div class="preview-block"><div class="preview-label">回答</div>${escapeHtml(lastContent)}</div>`;
-  document.getElementById("memory-save-modal").classList.add("show");
+  showModal("memory-save-modal");
 }
 
 function dismissMemoryPrompt() {
-  document.getElementById("memory-save-modal").classList.remove("show");
+  hideModal("memory-save-modal");
 }
 
 async function confirmSaveMemory() {
@@ -1428,7 +1582,7 @@ async function confirmSaveMemory() {
 }
 
 async function openMemoryPanel() {
-  document.getElementById("memory-list-modal").classList.add("show");
+  showModal("memory-list-modal");
   const body = document.getElementById("memory-list-body");
   body.innerHTML = '<div class="empty-state"><p>加载中…</p></div>';
   try {
@@ -1468,7 +1622,7 @@ async function openMemoryPanel() {
 }
 
 function closeMemoryPanel() {
-  document.getElementById("memory-list-modal").classList.remove("show");
+  hideModal("memory-list-modal");
 }
 
 async function openEditMemory(memoryId) {
@@ -1481,14 +1635,14 @@ async function openEditMemory(memoryId) {
     document.getElementById("edit-memory-title").value = m.title || "";
     document.getElementById("edit-memory-question").value = m.question || "";
     document.getElementById("edit-memory-answer").value = m.answer || "";
-    document.getElementById("memory-edit-modal").classList.add("show");
+    showModal("memory-edit-modal", "#edit-memory-title");
   } catch (e) {
     toast(e.message, "error");
   }
 }
 
 function closeEditMemory() {
-  document.getElementById("memory-edit-modal").classList.remove("show");
+  hideModal("memory-edit-modal");
 }
 
 async function saveEditMemory() {
@@ -1537,8 +1691,15 @@ function showSession(sid) {
 }
 
 function updateCharCount() {
-  const len = document.getElementById("input").value.length;
-  document.getElementById("char-count").textContent = len + " 字";
+  const input = document.getElementById("input");
+  const len = input.value.length;
+  const hasInput = Boolean(input.value.trim());
+  const counter = document.getElementById("char-count");
+  counter.textContent = `${len} / 10000 字`;
+  counter.classList.toggle("warn", len >= 8000);
+  document.getElementById("btn-stream").disabled = isRunning || !hasInput;
+  document.getElementById("btn-sync").disabled = isRunning || !hasInput;
+  document.getElementById("btn-clear").disabled = isRunning || len === 0;
 }
 
 function renderAgentStrip() {
@@ -1657,19 +1818,54 @@ function toast(msg, type = "") {
   setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 300); }, 2800);
 }
 
-function setRunning(on) {
+function setRunning(on, finalHint = "") {
   isRunning = on;
   document.getElementById("progress-bar").classList.toggle("active", on);
-  document.getElementById("btn-stream").disabled = on;
-  document.getElementById("btn-sync").disabled = on;
+  document.getElementById("progress-bar").setAttribute("aria-valuetext", on ? "生成中" : (finalHint || "等待开始"));
+  document.getElementById("app-shell").setAttribute("aria-busy", String(on));
+  document.getElementById("btn-cancel").hidden = !on;
+  document.getElementById("btn-stream").hidden = on;
+  document.getElementById("input").readOnly = on;
+  document.querySelectorAll(".quick-chip").forEach(button => { button.disabled = on; });
   const badge = document.getElementById("health-badge");
   if (on) {
     badge.className = "badge running";
     badge.innerHTML = '<span class="dot"></span>生成中';
-    document.getElementById("workflow-hint").textContent = "运行中…";
+    runStartedAt = Date.now();
+    const updateElapsed = () => {
+      const seconds = Math.max(0, Math.floor((Date.now() - runStartedAt) / 1000));
+      document.getElementById("workflow-hint").textContent = `运行中 · ${seconds}s`;
+    };
+    updateElapsed();
+    elapsedTimer = setInterval(updateElapsed, 1000);
   } else {
+    if (elapsedTimer) clearInterval(elapsedTimer);
+    elapsedTimer = null;
+    activeController = null;
     checkHealth();
-    document.getElementById("workflow-hint").textContent = "等待开始";
+    document.getElementById("workflow-hint").textContent = finalHint || "等待开始";
+  }
+  updateCharCount();
+}
+
+function cancelGeneration() {
+  if (!activeController || activeController.signal.aborted) return;
+  document.getElementById("workflow-hint").textContent = "正在停止…";
+  activeController.abort();
+}
+
+function revealResult() {
+  const resultTab = document.getElementById("tab-result");
+  resultTab.classList.add("result-tab-ready");
+  if (window.innerWidth <= 767) {
+    switchMobileTab("result");
+    window.scrollTo({ top: 0, behavior: "auto" });
+  } else if (window.innerWidth <= 1359) {
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.getElementById("panel-result").scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "start",
+    });
   }
 }
 
@@ -1688,6 +1884,7 @@ function renderResult(data) {
     if (data && data.error) {
       emptyEl.innerHTML = `<div class="icon">⚠️</div><p style="color:var(--red)">${escapeHtml(data.error)}</p>`;
     }
+    revealResult();
     return;
   }
 
@@ -1749,13 +1946,14 @@ function renderResult(data) {
   document.getElementById("result-content-wrapper").innerHTML =
     `<div class="result-content">${formatContent(content)}</div>${auditHtml}` +
     renderMetrics(data.metrics || {}) + renderRevisions(data.revisions || []) + renderHumanReview();
+  revealResult();
 }
 
 function renderMetrics(metrics) {
   if (!metrics || !Object.keys(metrics).length) return "";
   const failed = metrics.llm_failed_calls || 0;
-  return `<div class="evidence-panel">
-    <div class="evidence-title">📊 本次运行证据</div>
+  return `<details class="evidence-panel evidence-details">
+    <summary>📊 本次运行证据</summary>
     <div class="metric-grid">
       <div class="metric-item">总耗时<b>${((metrics.elapsed_ms || 0) / 1000).toFixed(2)} s</b></div>
       <div class="metric-item">Token 用量<b>${metrics.total_tokens || 0}${metrics.usage_estimated ? "（估算）" : ""}</b></div>
@@ -1764,19 +1962,19 @@ function renderMetrics(metrics) {
       <div class="metric-item">检索素材<b>${metrics.retrieved_count || 0}</b></div>
       <div class="metric-item">节点异常<b>${(metrics.node_errors || []).length}</b></div>
     </div>
-  </div>`;
+  </details>`;
 }
 
 function renderRevisions(revisions) {
   if (!Array.isArray(revisions) || !revisions.length) return "";
-  return `<div class="evidence-panel">
-    <div class="evidence-title">🧾 审核修改前后（最多展示 3 轮）</div>
+  return `<details class="evidence-panel evidence-details">
+    <summary>🧾 审核修改前后（最多展示 3 轮）</summary>
     ${revisions.slice(0, 3).map((item, index) => `<details ${index === 0 ? "open" : ""}>
       <summary>第 ${item.iteration || index + 1} 轮 · 评分 ${Number(item.before_score || 0).toFixed(2)} → ${item.after_score == null ? "-" : Number(item.after_score).toFixed(2)}</summary>
       ${(item.issues || []).length ? `<div class="audit-meta">${(item.issues || []).map(escapeHtml).join("<br>")}</div>` : ""}
       <pre class="revision-diff">${escapeHtml(item.unified_diff || "本轮文本没有可显示的行级变化")}</pre>
     </details>`).join("")}
-  </div>`;
+  </details>`;
 }
 
 function renderHumanReview() {
@@ -1785,18 +1983,23 @@ function renderHumanReview() {
     ["character_consistency", "人物一致性"], ["shootability", "可拍摄性"],
     ["compliance", "内容合规"],
   ];
-  const options = [1,2,3,4,5].map(v => `<option value="${v}" ${v === 3 ? "selected" : ""}>${v}</option>`).join("");
-  return `<div class="evidence-panel" id="human-review-panel">
-    <div class="evidence-title">🧑‍⚖️ 人工五维评分（1–5 分）</div>
+  const options = '<option value="">请选择</option>' + [1,2,3,4,5].map(v => `<option value="${v}">${v}</option>`).join("");
+  return `<details class="evidence-panel evidence-details" id="human-review-panel">
+    <summary>🧑‍⚖️ 人工五维评分（1–5 分）</summary>
     <div class="rating-grid">${fields.map(([key, label]) => `<label>${label}<select id="rating-${key}">${options}</select></label>`).join("")}</div>
     <textarea class="review-notes" id="rating-notes" maxlength="2000" placeholder="可选：记录具体优缺点，便于后续复盘"></textarea>
-    <button class="btn btn-primary" onclick="submitHumanReview()">提交评分</button>
-  </div>`;
+    <button class="btn btn-primary" onclick="submitHumanReview()">保存评分</button>
+  </details>`;
 }
 
 async function submitHumanReview() {
   if (!lastResultData) return;
   const getScore = key => Number(document.getElementById("rating-" + key).value);
+  const scoreKeys = ["hook", "pacing", "character_consistency", "shootability", "compliance"];
+  if (scoreKeys.some(key => !getScore(key))) {
+    toast("请完成五项评分后再保存", "error");
+    return;
+  }
   const payload = {
     user_id: userId,
     session_id: sessionId || "",
@@ -1862,12 +2065,19 @@ async function runStream() {
   const input = document.getElementById("input").value.trim();
   if (!input) { toast("请先输入创作需求", "error"); return; }
 
+  activeController = new AbortController();
+  let finalHint = "失败";
   setRunning(true);
   lastQuestion = input;
+  lastContent = "";
+  lastResultData = null;
   resetFlow(); clearEvents();
   document.getElementById("result-empty").style.display = "block";
   document.getElementById("result-wrapper").style.display = "none";
+  document.getElementById("result-hint").textContent = "生成中";
+  document.getElementById("tab-result").classList.remove("result-tab-ready");
   document.getElementById("stats-row").classList.remove("visible");
+  if (window.innerWidth <= 767) switchMobileTab("workflow");
 
   let sawRetrieve = false;
 
@@ -1876,6 +2086,7 @@ async function runStream() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(buildPayload()),
+      signal: activeController.signal,
     });
     if (!resp.ok) throw new Error("HTTP " + resp.status);
 
@@ -1907,15 +2118,24 @@ async function runStream() {
     }
 
     if (!sawRetrieve) markSkipped("retrieve_node");
-    document.getElementById("workflow-hint").textContent = "已完成";
-    toast("生成完成", "success");
-    if (lastContent) toast("预览满意后可保存到记忆库", "success");
+    if (lastContent) {
+      finalHint = "已完成";
+      toast("生成完成", "success");
+      toast("预览满意后可保存到记忆库", "success");
+    } else {
+      finalHint = "未生成内容";
+      renderResult({ error: "流程已结束，但模型没有返回可用正文" });
+      toast("模型没有返回可用正文", "error");
+    }
   } catch (e) {
-    addEvent("error", escapeHtml(e.message));
-    document.getElementById("workflow-hint").textContent = "失败";
-    toast(e.message, "error");
+    const cancelled = e.name === "AbortError" || (activeController && activeController.signal.aborted);
+    finalHint = cancelled ? "已取消" : "失败";
+    const message = cancelled ? "生成已停止" : e.message;
+    addEvent(cancelled ? "workflow_done" : "error", escapeHtml(message));
+    renderResult({ error: message });
+    toast(message, cancelled ? "" : "error");
   } finally {
-    setRunning(false);
+    setRunning(false, finalHint);
   }
 }
 
@@ -1924,31 +2144,48 @@ async function runSync() {
   const input = document.getElementById("input").value.trim();
   if (!input) { toast("请先输入创作需求", "error"); return; }
 
+  activeController = new AbortController();
+  let finalHint = "失败";
   setRunning(true);
   lastQuestion = input;
+  lastContent = "";
+  lastResultData = null;
   resetFlow(); clearEvents();
   addEvent("start", "同步模式启动");
+  document.getElementById("result-hint").textContent = "生成中";
+  document.getElementById("tab-result").classList.remove("result-tab-ready");
+  if (window.innerWidth <= 767) switchMobileTab("workflow");
 
   try {
     const resp = await fetch("/v1/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(buildPayload()),
+      signal: activeController.signal,
     });
     const data = await resp.json();
     if (data.status !== "ok") throw new Error(data.error || "请求失败");
     for (const n of NODES) updateNode(n.key, "done");
     renderResult(data.data);
     addEvent("final", "同步生成完成");
-    document.getElementById("workflow-hint").textContent = "已完成";
-    toast("生成完成", "success");
-    if (lastContent) toast("预览满意后可保存到记忆库", "success");
+    if (lastContent) {
+      finalHint = "已完成";
+      toast("生成完成", "success");
+      toast("预览满意后可保存到记忆库", "success");
+    } else {
+      finalHint = "未生成内容";
+      toast("模型没有返回可用正文", "error");
+    }
   } catch (e) {
-    for (const n of NODES) updateNode(n.key, "error");
-    addEvent("error", escapeHtml(e.message));
-    toast(e.message, "error");
+    const cancelled = e.name === "AbortError" || (activeController && activeController.signal.aborted);
+    finalHint = cancelled ? "已取消" : "失败";
+    if (!cancelled) for (const n of NODES) updateNode(n.key, "error");
+    const message = cancelled ? "生成已停止" : e.message;
+    addEvent(cancelled ? "workflow_done" : "error", escapeHtml(message));
+    renderResult({ error: message });
+    toast(message, cancelled ? "" : "error");
   } finally {
-    setRunning(false);
+    setRunning(false, finalHint);
   }
 }
 
@@ -1984,6 +2221,8 @@ function clearAll() {
   document.getElementById("result-wrapper").style.display = "none";
   document.getElementById("stats-row").classList.remove("visible");
   document.getElementById("result-hint").textContent = "尚无结果";
+  document.getElementById("workflow-hint").textContent = "等待开始";
+  document.getElementById("tab-result").classList.remove("result-tab-ready");
   lastContent = "";
   const saveBtn = document.getElementById("btn-save-memory");
   if (saveBtn) saveBtn.style.display = "none";
