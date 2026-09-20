@@ -20,6 +20,7 @@ from .agents.polish_agent import (
     run_organize,
     run_qa,
     run_rewrite,
+    run_script,
 )
 from .agents.retriever_agent import run_retrieve
 from .config import settings
@@ -30,6 +31,7 @@ from .models import (
     AuditResult,
     FinalResponse,
     ParsedTask,
+    ReferenceSource,
     ReflectionEntry,
     RevisionRecord,
     WorkflowMetrics,
@@ -53,6 +55,7 @@ class WorkflowGraphState(TypedDict, total=False):
     raw_input: str
     user_id: str
     session_id: Optional[str]
+    run_mode: Literal["fast", "quality"]
     session_context: str
     user_profile_text: str
     parsed_task: Annotated[Optional[ParsedTask], _overwrite]
@@ -99,13 +102,16 @@ def _safe_node(
         if name == "retrieve_node":
             record_retrieval(len(result.get("retrieved_materials") or []))
         logger.info(f"node[{name}] ok 耗时={dt_ms:.0f}ms")
-        _emit(ctx, {
+        done_event = {
             "type": "node_done",
             "node": name,
             "ts": time.time(),
             "duration_ms": round(dt_ms, 1),
             "summary": _node_output_summary(name, result),
-        })
+        }
+        if name == "retrieve_node":
+            done_event["references"] = _reference_sources(result.get("retrieved_materials") or [])
+        _emit(ctx, done_event)
         return result
     except DramaAgentError as e:
         dt_ms = (time.time() - t0) * 1000
@@ -136,7 +142,7 @@ def _node_output_summary(name: str, result: Dict[str, Any]) -> str:
         elif name == "retrieve_node":
             mats = result.get("retrieved_materials") or []
             return f"召回 {len(mats)} 条素材"
-        elif name in {"copywriting_node", "organize_node", "qa_node", "rewrite_node"}:
+        elif name in {"script_node", "copywriting_node", "organize_node", "qa_node", "rewrite_node"}:
             content = result.get("draft_content", "")
             return f"生成内容 {len(str(content))} 字"
         elif name == "audit_node":
@@ -149,6 +155,23 @@ def _node_output_summary(name: str, result: Dict[str, Any]) -> str:
     except Exception:
         pass
     return "节点完成"
+
+
+def _reference_sources(materials: List[Any]) -> List[Dict[str, Any]]:
+    """移除素材正文，仅向前端公开可核验的来源元数据。"""
+    sources: List[Dict[str, Any]] = []
+    for material in materials:
+        raw = material if isinstance(material, dict) else material.model_dump()
+        sources.append(ReferenceSource.model_validate({
+            "material_id": raw.get("material_id", ""),
+            "title": raw.get("title", ""),
+            "category": raw.get("category", "unknown"),
+            "score": raw.get("score", 0.0),
+            "source": raw.get("source", "public_knowledge"),
+            "source_path": raw.get("source_path", ""),
+            "owner_user_id": raw.get("owner_user_id"),
+        }).model_dump())
+    return sources
 
 
 def _audit_score(audit: Any) -> float:
@@ -199,6 +222,7 @@ def _generation_node(state: WorkflowGraphState) -> str:
         else parsed.get("task_type", "copywriting")
     )
     return {
+        "script_generation": "script_node",
         "content_organize": "organize_node",
         "qa": "qa_node",
         "copywriting": "copywriting_node",
@@ -272,6 +296,9 @@ def _build_workflow_graph(ctx: Dict[str, Any]):
     def copywriting_node(state: WorkflowGraphState) -> Dict[str, Any]:
         return _safe_node(ctx, run_copywriting, "copywriting_node", dict(state))
 
+    def script_node(state: WorkflowGraphState) -> Dict[str, Any]:
+        return _safe_node(ctx, run_script, "script_node", dict(state))
+
     def organize_node(state: WorkflowGraphState) -> Dict[str, Any]:
         return _safe_node(ctx, run_organize, "organize_node", dict(state))
 
@@ -310,6 +337,7 @@ def _build_workflow_graph(ctx: Dict[str, Any]):
     builder.add_node("parse_node", parse_node)
     builder.add_node("retrieve_node", retrieve_node)
     builder.add_node("copywriting_node", copywriting_node)
+    builder.add_node("script_node", script_node)
     builder.add_node("organize_node", organize_node)
     builder.add_node("qa_node", qa_node)
     builder.add_node("audit_input_node", audit_input_node)
@@ -320,6 +348,7 @@ def _build_workflow_graph(ctx: Dict[str, Any]):
     builder.add_conditional_edges("parse_node", _route_after_parse)
     builder.add_conditional_edges("retrieve_node", _route_after_retrieve)
     builder.add_edge("copywriting_node", "audit_node")
+    builder.add_edge("script_node", "audit_node")
     builder.add_edge("organize_node", "audit_node")
     builder.add_edge("qa_node", "audit_node")
     builder.add_edge("audit_input_node", "audit_node")
@@ -339,10 +368,20 @@ def _run_langgraph(ctx: Dict[str, Any], state: WorkflowGraphState) -> WorkflowGr
 # ============= 对外主入口 =============
 
 
-def run_workflow(raw_input: str, user_id: str = "guest",
-                 session_id: Optional[str] = None) -> FinalResponse:
+def run_workflow(
+    raw_input: str,
+    user_id: str = "guest",
+    session_id: Optional[str] = None,
+    run_mode: Literal["fast", "quality"] = "quality",
+) -> FinalResponse:
     """阻塞式：运行完整工作流，返回 FinalResponse。"""
-    return run_workflow_with_events(raw_input, user_id, None, session_id)
+    return run_workflow_with_events(
+        raw_input,
+        user_id,
+        None,
+        session_id,
+        run_mode=run_mode,
+    )
 
 
 def run_workflow_with_events(
@@ -350,6 +389,7 @@ def run_workflow_with_events(
     user_id: str = "guest",
     event_callback: Optional[Callable[[dict], None]] = None,
     session_id: Optional[str] = None,
+    run_mode: Literal["fast", "quality"] = "quality",
 ) -> FinalResponse:
     """流式：运行工作流，通过 event_callback 逐事件通知调用方（前端 SSE）。"""
     t0 = time.time()
@@ -372,12 +412,16 @@ def run_workflow_with_events(
         "input": raw_input[:200],
         "session_id": session.session_id,
         "has_context": has_context,
+        "run_mode": run_mode,
     })
+
+    max_iteration = 1 if run_mode == "fast" else int(settings.audit_max_iteration or 3)
 
     state: WorkflowGraphState = {
         "raw_input": raw_input,
         "user_id": user_id,
         "session_id": session.session_id,
+        "run_mode": run_mode,
         "session_context": context_text,
         "user_profile_text": profile_text,
         "parsed_task": None,
@@ -385,7 +429,7 @@ def run_workflow_with_events(
         "draft_content": "",
         "audit_result": None,
         "iteration_count": 0,
-        "max_iteration": int(settings.audit_max_iteration or 3),
+        "max_iteration": max_iteration,
         "degrade_mode": False,
         "error_info": "",
         "need_more_retrieval": False,
@@ -471,6 +515,7 @@ def run_workflow_with_events(
 
     return FinalResponse(
         success=workflow_success,
+        run_mode=run_mode,
         task_type=task_type_value,
         content=content,
         audit_result=audit_result,
@@ -485,6 +530,10 @@ def run_workflow_with_events(
         revisions=[
             RevisionRecord.model_validate(item)
             for item in (state.get("revision_history") or [])
+        ],
+        reference_sources=[
+            ReferenceSource.model_validate(item)
+            for item in _reference_sources(state.get("retrieved_materials") or [])
         ],
     )
 

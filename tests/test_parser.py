@@ -2,12 +2,24 @@
 from __future__ import annotations
 
 from drama_agent.agents.parser_agent import _rule_based_parse, run_parse
+from drama_agent.models import ParsedTask
 
 
 def test_rule_based_parse_copywriting():
     task = _rule_based_parse("写2版推广文案，推广都市新剧《错位人生》")
     assert task.task_type == "copywriting"
     assert task.needs_retrieval is True
+
+
+def test_rule_based_parse_script_chapter():
+    task = _rule_based_parse("写一个主角为博兴是傻子的短剧内容第一章")
+    assert task.task_type == "script_generation"
+    assert task.target_length == 1000
+
+
+def test_marketing_word_keeps_copywriting_even_with_short_drama():
+    task = _rule_based_parse("为这个短剧内容写一版投放推广文案")
+    assert task.task_type == "copywriting"
 
 
 def test_rule_based_parse_audit():
@@ -31,3 +43,40 @@ def test_run_parse_stub_mode():
     result = run_parse(state)
     assert "parsed_task" in result
     assert result["parsed_task"].task_type == "content_organize"
+
+
+def test_fast_mode_skips_llm_parser(monkeypatch):
+    import drama_agent.agents.parser_agent as parser_module
+
+    monkeypatch.setattr(parser_module, "llm_available", lambda: True)
+
+    def unexpected_llm_call(**_):
+        raise AssertionError("快速模式不应调用 LLM 解析")
+
+    monkeypatch.setattr(parser_module, "chat_structured", unexpected_llm_call)
+    result = parser_module.run_parse({
+        "raw_input": "写一段都市短剧推广文案，300字",
+        "run_mode": "fast",
+    })
+    assert result["parsed_task"].task_type == "copywriting"
+    assert "快速模式" in result["parsed_task"].raw_explanation
+
+
+def test_quality_mode_corrects_llm_script_misclassification(monkeypatch):
+    import drama_agent.agents.parser_agent as parser_module
+
+    monkeypatch.setattr(parser_module, "llm_available", lambda: True)
+    monkeypatch.setattr(parser_module, "chat_structured", lambda **_: ParsedTask(
+        task_type="copywriting",
+        topic="博兴短剧第一章",
+        style="爽文",
+        target_length=500,
+        requirements="写第一章",
+        raw_explanation="模型误判为推广文案",
+    ))
+    result = parser_module.run_parse({
+        "raw_input": "写一个主角为博兴是傻子的短剧内容第一章",
+        "run_mode": "quality",
+    })
+    assert result["parsed_task"].task_type == "script_generation"
+    assert result["parsed_task"].target_length >= 800

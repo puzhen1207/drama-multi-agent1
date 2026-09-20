@@ -37,6 +37,12 @@ env/
 *.swo
 *~
 
+# Vue frontend
+web/node_modules/
+web/.npm-cache/
+web/*.tsbuildinfo
+outputs/vue-ui-smoke*.png
+
 # Environment & secrets
 .env
 .env.local
@@ -49,6 +55,8 @@ data/sessions/*
 !data/sessions/.gitkeep
 data/user_memory/*
 !data/user_memory/.gitkeep
+data/auth/*
+!data/auth/.gitkeep
 data/evaluations/*
 !data/evaluations/.gitkeep
 evals/results/*

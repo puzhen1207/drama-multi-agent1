@@ -77,3 +77,22 @@ def test_get_and_update(memory_store):
 
     hits = memory_store.search("u1", "修改后的问题", top_k=1)
     assert hits and hits[0].material_id == mid
+
+
+def test_load_repairs_dimension_and_count_mismatch(tmp_path, monkeypatch):
+    pytest.importorskip("faiss")
+    from drama_agent.tools.embedding import get_embedding_provider
+    from drama_agent.tools.user_memory import UserMemoryStore
+
+    store_dir = tmp_path / "repair_memory"
+    store = UserMemoryStore(store_dir=store_dir)
+    for index in range(3):
+        store.add("u1", f"霸总追妻短剧大纲第{index + 1}版", "女主离开后男主开始追妻，剧情连续反转。" * 3)
+
+    provider = get_embedding_provider()
+    provider.dim = 32
+    repaired = UserMemoryStore(store_dir=store_dir)
+
+    assert repaired.faiss_index.d == 32
+    assert repaired.faiss_index.ntotal == 3
+    assert repaired.search("u1", "霸总追妻 大纲", top_k=2)

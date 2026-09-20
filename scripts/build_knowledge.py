@@ -40,18 +40,20 @@ def _load_documents(knowledge_dir: Path) -> list[dict]:
                 print(f"[SKIP] JSON 解析失败 {rel}: {e}")
                 continue
             if isinstance(data, list):
-                for item in data:
+                for item_index, item in enumerate(data, start=1):
                     if isinstance(item, dict) and item.get("content"):
                         docs.append({
                             "title": item.get("title", fp.stem),
                             "category": item.get("category", "unknown"),
                             "content": item["content"],
+                            "source_path": f"data/knowledge/{rel.as_posix()}#item-{item_index}",
                         })
             elif isinstance(data, dict) and data.get("content"):
                 docs.append({
                     "title": data.get("title", fp.stem),
                     "category": data.get("category", "unknown"),
                     "content": data["content"],
+                    "source_path": f"data/knowledge/{rel.as_posix()}",
                 })
         else:
             content = fp.read_text(encoding="utf-8").strip()
@@ -62,6 +64,7 @@ def _load_documents(knowledge_dir: Path) -> list[dict]:
                 "title": fp.stem.replace("_", " "),
                 "category": category,
                 "content": content,
+                "source_path": f"data/knowledge/{rel.as_posix()}",
             })
 
     return docs

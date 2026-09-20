@@ -35,16 +35,41 @@ class UserMemoryStore:
         self._load_or_init()
 
     def _load_or_init(self) -> None:
-        if self.index_path.exists() and self.meta_path.exists():
+        if self.meta_path.exists():
             try:
-                self.faiss_index = _faiss_load_index(self.index_path)
                 with open(str(self.meta_path), "rb") as f:
                     data = pickle.load(f)
                 self.entries = data.get("entries", [])
+                saved_dim = data.get("dim")
+                if self.index_path.exists():
+                    try:
+                        self.faiss_index = _faiss_load_index(self.index_path)
+                    except Exception as e:
+                        logger.warning(f"[UserMemory] 向量文件加载失败，将从元数据重建：{e}")
+
+                index_dim = getattr(self.faiss_index, "d", None)
+                index_count = getattr(self.faiss_index, "ntotal", 0) if self.faiss_index is not None else 0
+                incompatible = bool(self.entries) and (
+                    self.faiss_index is None
+                    or index_dim != self.embedding.dim
+                    or index_count != len(self.entries)
+                    or (saved_dim is not None and saved_dim != self.embedding.dim)
+                )
+                if incompatible:
+                    logger.warning(
+                        f"[UserMemory] 索引不一致（index_dim={index_dim}, embedding_dim={self.embedding.dim}, "
+                        f"vectors={index_count}, entries={len(self.entries)}），正在自动重建"
+                    )
+                    self._rebuild_index()
+                    try:
+                        self.save()
+                    except Exception as e:
+                        # 索引已在内存中修复；持久化失败不能让已加载的素材元数据被清空。
+                        logger.warning(f"[UserMemory] 自动修复结果暂时无法写回磁盘：{e}")
                 logger.info(f"[UserMemory] 已加载 {len(self.entries)} 条个人记忆")
                 return
             except Exception as e:
-                logger.warning(f"[UserMemory] 加载失败，重建：{e}")
+                logger.warning(f"[UserMemory] 元数据加载失败，将创建空记忆库：{e}")
         self.entries = []
         self.faiss_index = None
         if not hasattr(self, "_numpy_matrix"):
@@ -56,6 +81,8 @@ class UserMemoryStore:
                 _faiss_save_index(self.faiss_index, self.index_path)
             except Exception as e:
                 logger.warning(f"[UserMemory] 保存索引失败：{e}")
+        elif not self.entries and self.index_path.exists():
+            self.index_path.unlink()
         tmp = self.meta_path.with_suffix(self.meta_path.suffix + ".tmp")
         with open(str(tmp), "wb") as f:
             pickle.dump({"entries": self.entries, "dim": self.embedding.dim}, f)
@@ -163,6 +190,8 @@ class UserMemoryStore:
                 category="个人记忆",
                 score=score,
                 source="user_memory",
+                source_path=f"用户个人素材 / {user_id or 'guest'}",
+                owner_user_id=user_id or "guest",
             ))
 
         results.sort(key=lambda m: m.score, reverse=True)

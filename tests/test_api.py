@@ -25,10 +25,9 @@ def test_root_returns_html():
     assert resp.status_code == 200
     assert "text/html" in resp.headers.get("content-type", "")
     html = resp.text
-    assert 'id="llm-badge"' in html
-    assert 'role="tablist"' in html
-    assert 'aria-modal="true"' in html
-    assert "AbortController" in html
+    assert '<div id="app"></div>' in html
+    assert "短剧创作台" in html
+    assert "createApp" in html
 
 
 def test_list_tools():
@@ -48,6 +47,15 @@ def test_generate_sync():
     data = resp.json()
     assert data["status"] == "ok"
     assert data["data"]["content"]
+
+
+def test_generate_rejects_unknown_run_mode():
+    resp = client.post("/v1/generate", json={
+        "raw_input": "写一段短剧开头",
+        "user_id": "test",
+        "run_mode": "turbo",
+    })
+    assert resp.status_code == 422
 
 
 def test_sse_encoding():

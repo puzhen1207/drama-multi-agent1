@@ -17,6 +17,7 @@ if str(SRC) not in sys.path:
 def isolated_stub_runtime(tmp_path, monkeypatch):
     """所有单元测试都离线、无真实凭据，并使用独立临时存储。"""
     from drama_agent import config
+    import drama_agent.auth as auth_module
     import drama_agent.memory as memory_module
     import drama_agent.evaluation_store as evaluation_store_module
     import drama_agent.tools.embedding as embedding_module
@@ -25,6 +26,8 @@ def isolated_stub_runtime(tmp_path, monkeypatch):
 
     monkeypatch.setattr(config.settings, "llm_api_key", SecretStr(""))
     monkeypatch.setattr(config.settings, "api_user_tokens_json", SecretStr(""))
+    monkeypatch.setattr(config.settings, "auth_required", False)
+    monkeypatch.setattr(config.settings, "auth_path", str(tmp_path / "auth" / "users.json"))
     monkeypatch.setattr(config.settings, "vector_index_path", str(tmp_path / "faiss_index"))
     monkeypatch.setattr(config.settings, "user_memory_path", str(tmp_path / "user_memory"))
     monkeypatch.setattr(config.settings, "evaluation_path", str(tmp_path / "evaluations"))
@@ -40,7 +43,9 @@ def isolated_stub_runtime(tmp_path, monkeypatch):
     user_memory_module._user_memory_store = None
     memory_module._session_manager = None
     evaluation_store_module._store = None
+    auth_module._auth_store = None
     yield
+    auth_module._auth_store = None
     embedding_module._provider = None
     vector_module._vector_store = None
     user_memory_module._user_memory_store = None

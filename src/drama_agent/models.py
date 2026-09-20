@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
-TaskType = Literal["content_organize", "copywriting", "qa", "audit"]
+TaskType = Literal["script_generation", "content_organize", "copywriting", "qa", "audit"]
 
 
 class ParsedTask(BaseModel):
@@ -33,6 +33,20 @@ class RetrievedMaterial(BaseModel):
     category: str = "unknown"
     score: float = 0.0
     source: str = "faiss"
+    source_path: str = ""
+    owner_user_id: Optional[str] = None
+
+
+class ReferenceSource(BaseModel):
+    """可安全返回给前端的参考来源，不包含素材正文。"""
+
+    material_id: str = ""
+    title: str = ""
+    category: str = "unknown"
+    score: float = 0.0
+    source: str = "public_knowledge"
+    source_path: str = ""
+    owner_user_id: Optional[str] = None
 
 
 class AuditIssue(BaseModel):
@@ -190,6 +204,7 @@ class FinalResponse(BaseModel):
     """对外统一返回结构。"""
 
     success: bool = False
+    run_mode: Literal["fast", "quality"] = "quality"
     task_type: Optional[str] = None
     content: str = ""
     audit_result: Optional[AuditResult] = None
@@ -202,6 +217,7 @@ class FinalResponse(BaseModel):
     user_profile_summary: Optional[str] = None
     metrics: Optional[WorkflowMetrics] = None
     revisions: List[RevisionRecord] = Field(default_factory=list)
+    reference_sources: List[ReferenceSource] = Field(default_factory=list)
 
 
 class WorkflowState(BaseModel):
@@ -212,6 +228,7 @@ class WorkflowState(BaseModel):
     raw_input: str = ""
     user_id: str = "guest"
     session_id: Optional[str] = None
+    run_mode: Literal["fast", "quality"] = "quality"
 
     # 记忆
     session_context: str = ""

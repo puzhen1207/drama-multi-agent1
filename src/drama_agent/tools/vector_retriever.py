@@ -70,23 +70,41 @@ class HierarchicalVectorStore:
     # ---------- IO ----------
 
     def _load_or_init(self) -> None:
-        if self.index_path.exists() and self.meta_path.exists():
+        if self.meta_path.exists():
             try:
-                self.faiss_index = _faiss_load_index(self.index_path)
                 with open(str(self.meta_path), "rb") as f:
                     data = pickle.load(f)
                 self.sub_meta = data.get("sub_meta", [])
                 self.parents = data.get("parents", {})
                 self._saved_dim = data.get("dim")
-                if self._saved_dim and self._saved_dim != self.embedding.dim:
+                if self.index_path.exists():
+                    try:
+                        self.faiss_index = _faiss_load_index(self.index_path)
+                    except Exception as e:
+                        logger.warning(f"[FAISS] 向量文件加载失败，将从元数据重建：{e}")
+
+                index_dim = getattr(self.faiss_index, "d", None)
+                index_count = getattr(self.faiss_index, "ntotal", 0) if self.faiss_index is not None else 0
+                incompatible = bool(self.sub_meta) and (
+                    self.faiss_index is None
+                    or index_dim != self.embedding.dim
+                    or index_count != len(self.sub_meta)
+                    or (self._saved_dim is not None and self._saved_dim != self.embedding.dim)
+                )
+                if incompatible:
                     logger.warning(
-                        f"[FAISS] 索引维度 {self._saved_dim} 与当前 embedding {self.embedding.dim} 不一致，"
-                        f"请执行 python scripts/build_knowledge.py --rebuild 重建索引"
+                        f"[FAISS] 索引不一致（index_dim={index_dim}, embedding_dim={self.embedding.dim}, "
+                        f"vectors={index_count}, chunks={len(self.sub_meta)}），正在自动重建"
                     )
+                    self._rebuild_index()
+                    self.save()
                 logger.info(f"[FAISS] 从磁盘加载：子块 {len(self.sub_meta)}，父块 {len(self.parents)}")
                 return
             except Exception as e:
-                logger.warning(f"[FAISS] 加载失败，重建索引：{e}")
+                logger.warning(f"[FAISS] 元数据加载失败，将创建空索引：{e}")
+                self.sub_meta = []
+                self.parents = {}
+                self.faiss_index = None
         try:
             import faiss as _faiss  # type: ignore
             del _faiss  # 只检查可用性
@@ -114,6 +132,16 @@ class HierarchicalVectorStore:
 
     # ---------- 构建 ----------
 
+    def _rebuild_index(self) -> None:
+        """使用已保存的子块文本按当前 Embedding 配置重建索引。"""
+        self.faiss_index = None
+        self._numpy_matrix = None
+        texts = [str(item.get("text", "")) for item in self.sub_meta]
+        if not texts:
+            return
+        self._add_vectors(self.embedding.encode(texts))
+        self._saved_dim = self.embedding.dim
+
     def add_documents(
         self,
         documents: List[dict],
@@ -126,7 +154,12 @@ class HierarchicalVectorStore:
             title = doc.get("title", "未命名")
             content = doc.get("content", "")
             category = doc.get("category", "unknown")
-            self.parents[parent_id] = {"title": title, "content": content, "category": category}
+            self.parents[parent_id] = {
+                "title": title,
+                "content": content,
+                "category": category,
+                "source_path": doc.get("source_path", "系统公共素材库"),
+            }
             chunks = _split_text(content, chunk_size, chunk_overlap) or [content]
             for i, chunk in enumerate(chunks):
                 self.sub_meta.append({
@@ -200,14 +233,19 @@ class HierarchicalVectorStore:
                 query, f"{parent.get('title', '')} {parent['content']}"
             )
             # 词面重排只能辅助消歧，不能完全覆盖向量语义得分；否则同义表达会被误杀。
-            rerank_score = 0.75 * vector_score + 0.25 * lexical_score
+            if self.embedding.is_real():
+                rerank_score = 0.75 * vector_score + 0.25 * lexical_score
+            else:
+                # 哈希降级向量不具备可靠语义距离，优先使用词面相关度。
+                rerank_score = 0.25 * vector_score + 0.75 * lexical_score
             results.append(RetrievedMaterial(
                 material_id=pid,
                 title=parent.get("title", ""),
                 content=parent.get("content", ""),
                 category=parent.get("category", "unknown"),
                 score=round(float(rerank_score), 4),
-                source="faiss+hybrid_rerank",
+                source="public_knowledge",
+                source_path=parent.get("source_path", "系统公共素材库"),
             ))
         results.sort(key=lambda m: m.score, reverse=True)
         final = results[:top_k_parent]
@@ -315,6 +353,7 @@ def ensure_builtin_knowledge() -> None:
         {
             "title": "短剧爽文剧本结构模板",
             "category": "剧本",
+            "source_path": "系统内置基础知识库",
             "content": (
                 "第一幕：开场冲突。用 300 字交代主角身份、所处困境，制造强烈情绪钩子。"
                 "第二幕：反转升级。引入关键配角或外力，让局势反复反转，保持高密度节奏。"
@@ -325,6 +364,7 @@ def ensure_builtin_knowledge() -> None:
         {
             "title": "都市爆款文案样例",
             "category": "文案",
+            "source_path": "系统内置基础知识库",
             "content": (
                 "标题公式：【强烈反差】她被豪门抛弃三年，归来时身价十亿。"
                 "正文公式：林晚从来没想过，离婚后第一次见顾言，会是在他的订婚宴上。"
@@ -334,6 +374,7 @@ def ensure_builtin_knowledge() -> None:
         {
             "title": "短剧行业合规红线",
             "category": "规则",
+            "source_path": "系统内置基础知识库",
             "content": (
                 "1. 禁止政治敏感内容、国家领导人姓名与相关符号。"
                 "2. 禁止色情低俗、淫秽暗示、床戏赤裸描写。"
@@ -347,6 +388,7 @@ def ensure_builtin_knowledge() -> None:
         {
             "title": "霸总追妻人设参考",
             "category": "人设",
+            "source_path": "系统内置基础知识库",
             "content": (
                 "身份：30 岁左右的企业总裁 / CEO / 家族继承人。"
                 "外貌：身材挺拔，五官深邃，气场压人。"

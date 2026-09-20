@@ -14,14 +14,25 @@ from .prompts import (
     ORGANIZE_SYSTEM_PROMPT,
     POLISH_SYSTEM_PROMPT,
     QA_SYSTEM_PROMPT,
+    SCRIPT_SYSTEM_PROMPT,
     build_task_user_prompt,
 )
 
 logger = get_logger("polish_agent")
 
+_MARKETING_SCAFFOLD = ("【投放标题】", "【推广标题】", "【标题备选】", "【核心卖点】", "【推广文案】")
+
+
+def _has_marketing_scaffold(content: str) -> bool:
+    return any(marker in (content or "") for marker in _MARKETING_SCAFFOLD)
+
 
 def run_copywriting(state: Dict[str, Any]) -> Dict[str, Any]:
     return _run_task_generation(state, "copywriting")
+
+
+def run_script(state: Dict[str, Any]) -> Dict[str, Any]:
+    return _run_task_generation(state, "script_generation")
 
 
 def run_organize(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -115,6 +126,7 @@ def _run_task_generation(state: Dict[str, Any], forced_task_type: str) -> Dict[s
 
     content: str
     system_prompts = {
+        "script_generation": SCRIPT_SYSTEM_PROMPT,
         "copywriting": COPYWRITING_SYSTEM_PROMPT,
         "content_organize": ORGANIZE_SYSTEM_PROMPT,
         "qa": QA_SYSTEM_PROMPT,
@@ -122,6 +134,16 @@ def _run_task_generation(state: Dict[str, Any], forced_task_type: str) -> Dict[s
     system_prompt = system_prompts.get(task_type, POLISH_SYSTEM_PROMPT)
     if llm_available():
         content = chat(user_prompt=user_prompt, system_prompt=system_prompt)
+        if task_type == "script_generation" and _has_marketing_scaffold(content):
+            logger.warning("[Polish] 剧本正文误用了营销结构，执行一次格式纠正")
+            correction_prompt = (
+                f"{user_prompt}\n\n"
+                "【格式纠正】上一次回答错误地使用了投放标题、核心卖点或推广文案结构。"
+                "请完全重写，只保留指定章节的剧本正文，以场景、动作和人物对白推进。"
+                "不要解释错误，也不要输出任何营销栏目。\n\n"
+                f"【上一次不合格输出】\n{content[:2400]}"
+            )
+            content = chat(user_prompt=correction_prompt, system_prompt=system_prompt)
     else:
         if strict_llm_required():
             raise LLMServiceError("严格评测模式禁止内容生成降级为 Stub")
@@ -159,6 +181,19 @@ def _format_materials(materials: List[Any]) -> str:
 
 
 def _stub_polish(task_type: str, topic: str, style: str, length: int, materials: str) -> str:
+    if task_type == "script_generation":
+        return (
+            f"《{topic}》\n\n"
+            "【第一章】\n\n"
+            "【场景：旧宅前院·白天】\n"
+            "众人围在院中，主角站在人群之外。所有人都把他当成笑话，"
+            "却没人注意到他已经看穿眼前的局。\n\n"
+            "【主角】：你们说完了吗？\n"
+            "院中笑声骤停。他抬起头，第一次没有露出平日的傻笑。\n\n"
+            "门外忽然传来急促脚步声，一个陌生人推门而入，径直跪在他面前。\n"
+            "【陌生人】：少爷，我们终于找到您了。\n\n"
+            f"（{style}风格 · STUB 模式 · 目标约 {length} 字；配置 LLM_API_KEY 后生成完整正文。）"
+        )
     if task_type == "copywriting":
         return (
             f"【推广标题】{topic}：命运反转就在这一刻\n\n"

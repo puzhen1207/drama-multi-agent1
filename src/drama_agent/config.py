@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     user_memory_top_k: int = Field(default=2, ge=0, le=10)
     enable_user_memory: bool = True
 
+    # ---------- 账号认证 ----------
+    auth_required: bool = True
+    auth_path: str = "data/auth/users.json"
+    auth_session_days: int = Field(default=30, ge=1, le=365)
+
     # ---------- 评测与人工评分 ----------
     evaluation_path: str = "data/evaluations"
 
@@ -105,6 +110,12 @@ class Settings(BaseSettings):
     def absolute_user_memory_path(self) -> Path:
         p = PROJECT_ROOT / self.user_memory_path
         p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def absolute_auth_path(self) -> Path:
+        p = PROJECT_ROOT / self.auth_path
+        p.parent.mkdir(parents=True, exist_ok=True)
         return p
 
     @property

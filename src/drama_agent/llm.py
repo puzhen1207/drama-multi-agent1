@@ -207,6 +207,7 @@ def chat(
     temperature: Optional[float] = None,
 ) -> str:
     """普通文本对话。LLM 未配置时自动返回 stub。"""
+    fallback_reason = "未配置有效 API Key。请在项目根目录的 .env 中配置 LLM_API_KEY。"
     if llm_available():
         messages = _build_messages(user_prompt, system_prompt, few_shots, context_messages)
         temp = temperature if temperature is not None else settings.llm_temperature
@@ -218,10 +219,14 @@ def chat(
             if strict_llm_required():
                 raise LLMServiceError(f"严格评测模式禁止降级：{e}") from e
             logger.warning(f"LLM 调用失败，进入 stub 模式: {e}")
+            fallback_reason = (
+                "已配置 API Key，但本次模型调用失败。请检查网络连接、接口地址、模型名称"
+                "和服务状态后重试。"
+            )
     elif strict_llm_required():
         raise LLMServiceError("严格评测模式要求有效且可用的 LLM 配置")
-    logger.warning("LLM 不可用（未配置 API Key），进入本地 stub 模式")
-    stub = _stub_chat(user_prompt, system_prompt)
+    logger.warning(f"进入本地 stub 模式：{fallback_reason}")
+    stub = _stub_chat(user_prompt, system_prompt, fallback_reason=fallback_reason)
     record_stub_call(len(user_prompt) + len(system_prompt), len(stub))
     return stub
 
@@ -284,13 +289,12 @@ def _strip_json(text: str) -> str:
     return t
 
 
-def _stub_chat(user_prompt: str, system_prompt: str = "") -> str:
+def _stub_chat(user_prompt: str, system_prompt: str = "", *, fallback_reason: str = "") -> str:
     """本地 stub 模式 —— 不依赖网络也能输出演示内容。"""
-    summary = (user_prompt + " " + (system_prompt or "")).strip()[:60]
     return (
-        f"【《{summary}》（STUB 模式 · 未接入真实 LLM）】\n\n"
-        f"本内容由本地模板生成，用于演示系统可运行性。请在项目根目录的 .env 中"
-        f"配置 LLM_API_KEY 后，可获得高质量的大模型生成内容。\n\n"
+        "【本地演示内容（STUB）】\n\n"
+        f"{fallback_reason or '本次未使用真实 LLM。'}\n"
+        "以下内容由本地模板生成，仅用于功能演示，不是模型生成的正式剧本。\n\n"
         f"第 1 幕：开场冲突。主角在一次意外事件中身陷绝境，强烈情绪钩子吸引读者。\n"
         f"第 2 幕：反转升级。关键配角登场，局势反复反转，节奏紧凑。\n"
         f"第 3 幕：高潮与钩子。冲突达到顶点，以悬念结尾，吸引读者看下一集。\n\n"

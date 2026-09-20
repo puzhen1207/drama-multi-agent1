@@ -44,7 +44,7 @@
 
 - **多 Agent 工作流**：任务解析、素材检索、内容润色、合规审核四类节点协同运行。
 - **LangGraph 调度**：使用 `StateGraph` 组织条件路由、审核反馈（反思迭代）与降级容错。
-- **可视化前端**：内置单页 Web UI，实时展示 SSE 事件流、节点状态、生成结果和审核报告。
+- **Vue 可视化前端**：基于 Vue 3 + TypeScript + Vite 构建组件化工作台，实时展示 SSE 事件流、节点状态、生成结果和审核报告。
 - **个人记忆库**：用户先预览生成内容，再手动确认是否保存为个人 Q&A 记忆；相似问题会自动召回参考。
 - **会话记忆**：支持多轮对话、用户画像学习、反思日志与会话持久化（JSON）。
 - **知识库检索**：支持将本地素材构建为 FAISS 向量索引，并在生成前召回相关上下文。
@@ -108,7 +108,12 @@ Final response + audit report + session memory + (可选) 个人记忆召回
 ```text
 drama-multi-agent/
 ├── frontend/
-│   └── index.html              # 可视化前端页面（FastAPI 根路径直接返回）
+│   └── index.html              # Vue 生产构建产物（FastAPI 根路径直接返回）
+├── web/                        # Vue 3 + TypeScript + Vite 前端源码
+│   ├── src/components/         # 输入、工作流、事件、结果、记忆等组件
+│   ├── src/api.ts              # REST / SSE 请求封装
+│   ├── src/App.vue             # 页面状态与业务编排
+│   └── vite.config.ts          # 开发代理与单文件生产构建
 ├── src/drama_agent/
 │   ├── api.py                  # FastAPI 路由（REST / SSE / 异步 / 记忆 / 会话）
 │   ├── graph.py                # LangGraph 工作流编排与节点包装
@@ -153,6 +158,7 @@ drama-multi-agent/
 ## 环境要求
 
 - Python 3.10+
+- Node.js 20+（仅修改或重新构建前端时需要）
 - Windows / macOS / Linux
 - 可选：DeepSeek、豆包、OpenAI 或任意 OpenAI 兼容接口的 API Key
 - 可选：Docker / Docker Compose
@@ -219,10 +225,13 @@ VECTOR_INDEX_PATH=data/faiss_index
 MATERIAL_KNOWLEDGE_PATH=data/knowledge
 USER_MEMORY_PATH=data/user_memory
 ENABLE_USER_MEMORY=true
+AUTH_REQUIRED=true
+AUTH_PATH=data/auth/users.json
+AUTH_SESSION_DAYS=30
 API_HOST=127.0.0.1
 API_PORT=8000
 
-# 可选：配置后启用 Bearer Token，并把 Token 与 user_id 绑定
+# 可选：为 CLI 或外部集成预置固定 Bearer Token
 # API_USER_TOKENS_JSON={"alice":"replace-with-a-long-random-token"}
 ```
 
@@ -248,6 +257,35 @@ PYTHONPATH=src python -m uvicorn drama_agent.api:app --host 127.0.0.1 --port 800
 - Web UI: <http://127.0.0.1:8000/>
 - Swagger API 文档: <http://127.0.0.1:8000/docs>
 - 健康检查: <http://127.0.0.1:8000/health>
+
+### 前端开发与构建
+
+FastAPI 默认直接返回已经构建好的 `frontend/index.html`，仅运行项目时不需要启动 Node.js。修改前端源码时执行：
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Vite 开发服务器默认运行在 <http://127.0.0.1:5173/>，并将 `/health`、`/v1` 和 `/docs` 代理到 <http://127.0.0.1:8000>。后端使用其他端口时，可设置 `VITE_API_TARGET`，例如 PowerShell：
+
+```powershell
+$env:VITE_API_TARGET = "http://127.0.0.1:8001"
+npm run dev
+```
+
+生成 FastAPI 直接托管的生产页面：
+
+```bash
+npm run build
+```
+
+服务启动后可运行不触发真实 LLM 的页面冒烟检查：
+
+```bash
+python scripts/ui_smoke_vue.py --base-url http://127.0.0.1:8000
+```
 
 开发时加 `--reload` 启用热重载：
 
@@ -324,13 +362,14 @@ FAISS 索引维度 384 与当前 embedding 1024 不一致
 
 访问首页后可完成以下操作：
 
-1. 输入短剧创作需求。
-2. 点击实时生成，观察每个 Agent 的执行过程（SSE 事件流）。
-3. 在结果区查看完整生成内容与合规审核结果。
-4. 查看本次运行耗时、Token、调用失败、检索数，以及最多三轮修改前后差异。
-5. 对钩子、节奏、人物一致性、可拍摄性和合规性提交 1–5 分人工评价。
-6. 预览满意后，点击结果工具栏中的「保存到记忆库」。
-7. 后续相似问题会自动召回个人记忆作为参考。
+1. 首次使用时注册账号；之后使用账号和密码登录。
+2. 输入短剧创作需求。
+3. 点击实时生成，观察每个 Agent 的执行过程（SSE 事件流）。
+4. 在结果区查看完整生成内容与合规审核结果。
+5. 查看本次运行耗时、Token、调用失败、检索数，以及最多三轮修改前后差异。
+6. 对钩子、节奏、人物一致性、可拍摄性和合规性提交 1–5 分人工评价。
+7. 预览满意后，点击结果工具栏中的「保存到记忆库」。
+8. 后续在任何浏览器登录同一账号，都会读取该账号的素材、会话与个人记忆。
 
 个人记忆库支持：
 
@@ -345,12 +384,22 @@ FAISS 索引维度 384 与当前 embedding 1024 不一致
 
 ## REST API
 
-默认配置只监听本机，便于开发。如果设置了 `API_USER_TOKENS_JSON`，除首页、健康检查和工具列表外，
-业务接口都必须携带与 `user_id` 匹配的 Token：
+默认启用账号认证。除首页、注册、登录、健康检查和工具列表外，业务接口都必须携带登录后返回的 Token：
 
 ```http
 Authorization: Bearer replace-with-a-long-random-token
 ```
+
+账号接口：
+
+```http
+POST /v1/auth/register
+POST /v1/auth/login
+GET  /v1/auth/me
+POST /v1/auth/logout
+```
+
+密码使用加盐 `scrypt` 哈希保存，服务端不会保存明文密码；随机登录令牌默认有效 30 天。切换浏览器时需要在新浏览器登录一次，登录后即可读取同一账号的服务端数据。
 
 `user_id`、`session_id` 和导入的 `memory_id` 仅允许字母、数字、下划线与连字符，避免路径穿越和脚本注入。
 
@@ -393,9 +442,15 @@ Content-Type: application/json
 {
   "raw_input": "写一段都市逆袭短剧开头",
   "user_id": "demo-user",
-  "session_id": "optional-session-id"
+  "session_id": "optional-session-id",
+  "run_mode": "fast"
 }
 ```
+
+`run_mode` 支持两种生成策略：
+
+- `fast`（REST 与 Web 默认）：规则解析、一次内容生成、一次双轨审核，不自动重写，通常只调用 LLM 2 次。
+- `quality`：使用 LLM 解析，并在审核未通过时进入 Reflection 重写闭环，最多审核 3 轮。
 
 ### SSE 流式生成
 
@@ -644,7 +699,8 @@ LLM_MODEL=...
 
 ### 修改前端
 
-前端是单文件实现 `frontend/index.html`。FastAPI 根路径 `/` 直接读取并返回该文件，多数前端修改刷新浏览器即可生效。
+前端源码位于 `web/`，采用 Vue 3 + TypeScript + Vite。修改后在 `web/` 目录执行
+`npm run build`，构建结果会写入 `frontend/index.html`，再刷新 FastAPI 根路径 `/` 即可查看。
 
 ---
 

@@ -94,9 +94,10 @@ def run_audit(state: Dict[str, Any]) -> Dict[str, Any]:
                 summary_parts.append(str(semantic.summary))
             summary = "；".join(summary_parts) or "双轨审核完成"
             threshold = float(settings.audit_pass_threshold or 0.8)
+            # 结构化审核偶尔会出现“高分、无硬违规，但 passed=false”的自相矛盾结果。
+            # 此时以分数阈值与两层硬违规信号为准，避免无意义地反复重写。
             passed = (
-                bool(semantic.passed)
-                and score >= threshold
+                score >= threshold
                 and not rule_engine_hit
                 and not semantic_forbidden
             )

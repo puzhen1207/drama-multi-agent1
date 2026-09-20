@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from .agents.audit_agent import run_audit
 from .agents.parser_agent import _rule_based_parse
-from .agents.polish_agent import run_copywriting, run_organize, run_qa, run_rewrite
+from .agents.polish_agent import run_copywriting, run_organize, run_qa, run_rewrite, run_script
 from .agents.retriever_agent import run_retrieve
 from .config import settings
 from .telemetry import record_node, record_retrieval, start_run_telemetry
@@ -116,6 +116,7 @@ def _base_state(case: EvaluationCase) -> Dict[str, Any]:
 def _generate_once(state: Dict[str, Any]) -> Dict[str, Any]:
     task_type = state["parsed_task"].task_type
     generators = {
+        "script_generation": run_script,
         "content_organize": run_organize,
         "qa": run_qa,
         "copywriting": run_copywriting,

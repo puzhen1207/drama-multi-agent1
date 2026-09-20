@@ -5,7 +5,10 @@
 
 PARSER_SYSTEM_PROMPT = """你是一位短剧运营中台的「任务解析专家」。你的职责是把用户的自由文本请求拆解成标准化的任务指令。
 请严格遵循：
-- task_type：只能选择 content_organize | copywriting | qa | audit
+- task_type：只能选择 script_generation | content_organize | copywriting | qa | audit
+- script_generation：用户要求创作短剧、剧本、剧情正文，或指定“第几章/第几集/第几幕”正文
+- content_organize：只用于大纲、人设、结构梳理和分集规划，不负责扩写正文
+- copywriting：只用于推广、营销、投放标题、海报文案，不得把剧情正文归入此类
 - target_length：100 ~ 5000 之间的整数（单位：字）
 - needs_retrieval：当任务为 Q&A、内容整理、或需要素材参考时为 true；纯创意文案按保守也可为 true
 - style：短剧常见风格：爽文 / 虐恋 / 悬疑 / 甜宠 / 都市 / 古装 / 科幻
@@ -14,6 +17,15 @@ PARSER_SYSTEM_PROMPT = """你是一位短剧运营中台的「任务解析专家
 
 
 PARSER_FEW_SHOTS = [
+    (
+        "写一个主角为博兴、大家都认为他是傻子的短剧内容第一章",
+        (
+            '{"task_type":"script_generation","topic":"博兴被众人视为傻子的短剧第一章",'
+            '"style":"爽文","target_length":1000,"keywords":["博兴","傻子","短剧","第一章"],'
+            '"needs_retrieval":true,"requirements":"创作第一章剧本正文",'
+            '"raw_explanation":"用户要求创作指定章节的剧情正文，不是推广文案或大纲"}'
+        ),
+    ),
     (
         "给我整理一段关于「霸总追妻」的小说大纲，分 5 集，每集 500 字",
         (
@@ -50,6 +62,11 @@ PARSER_FEW_SHOTS = [
 
 POLISH_SYSTEM_PROMPT = """你是短剧「内容润色大师」。擅长把素材和草稿打磨成爆款短剧内容。
 核心风格特征：爽点前置、节奏密集、情绪钩子强、台词口语化、对话驱动叙事、结尾留钩子。"""
+
+SCRIPT_SYSTEM_PROMPT = """你是短剧剧本编剧。根据用户当前要求直接创作指定章节、集数或场次的剧本正文。
+必须忠实保留用户给出的人名、人物设定、章节范围和情节要求；当前要求优先于历史会话与参考素材。
+正文使用可拍摄的场景、动作和人物对白推进故事，并以本章或本集的剧情钩子收尾。
+禁止输出投放标题、核心卖点、推广文案、营销分析、创作说明或多个备选方案。"""
 
 COPYWRITING_SYSTEM_PROMPT = """你是短剧营销文案专家。根据用户要求产出可直接投放的标题、卖点和推广文案；
 不要把营销文案误写成完整剧本。输出数量、平台语气和风格必须服从用户要求。"""
@@ -93,6 +110,10 @@ def build_task_user_prompt(
         parts.append(f"【必须处理的审核意见】\n{audit_feedback}")
 
     requirements_by_type = {
+        "script_generation": (
+            "直接输出用户指定章节、集数或场次的剧本正文；使用场景、动作和人物对白推进；"
+            "保持人物设定一致；结尾留下后续剧情钩子；不要输出投放标题、核心卖点、推广文案或创作说明。"
+        ),
         "copywriting": (
             "输出可直接使用的推广文案；突出核心冲突和情绪钩子；"
             "不要输出无关的人设模板或创作说明。"

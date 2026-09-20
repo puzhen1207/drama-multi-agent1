@@ -34,7 +34,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from contextlib import asynccontextmanager
 
@@ -42,6 +42,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from .auth import AuthError, get_auth_store
 from .config import PROJECT_ROOT, settings
 from .evaluation_store import HumanReview, get_human_review_store
 from .graph import list_tools, run_workflow, run_workflow_with_events
@@ -86,6 +87,10 @@ class GenerateRequest(BaseModel):
                            description="用户原始输入（最多 10k 字）")
     user_id: str = Field("guest", pattern=SAFE_IDENTIFIER_PATTERN, description="用户标识（可选）")
     session_id: Optional[str] = Field(default=None, pattern=SAFE_IDENTIFIER_PATTERN, description="会话 ID（不传则自动新建）")
+    run_mode: Literal["fast", "quality"] = Field(
+        default="fast",
+        description="运行模式：fast 省去 LLM 解析并最多审核 1 次；quality 保留完整 Reflection 闭环",
+    )
 
 
 class GenerateResponse(BaseModel):
@@ -130,6 +135,11 @@ class HumanReviewRequest(HumanReview):
     user_id: str = Field("guest", pattern=SAFE_IDENTIFIER_PATTERN)
 
 
+class AuthCredentials(BaseModel):
+    username: str = Field(..., min_length=1, max_length=128, pattern=SAFE_IDENTIFIER_PATTERN)
+    password: str = Field(..., min_length=8, max_length=128)
+
+
 def _configured_user_tokens() -> Dict[str, str]:
     """读取 user_id -> bearer token 映射；未配置时保持本地单用户模式。"""
     raw = settings.api_user_tokens_json.get_secret_value().strip()
@@ -153,26 +163,37 @@ def _configured_user_tokens() -> Dict[str, str]:
     return tokens
 
 
+def _bearer_token(request: Request) -> str:
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        return ""
+    return auth[7:].strip()
+
+
 def _authorize_user(request: Request, claimed_user_id: Optional[str]) -> str:
-    """在配置 Token 时把请求身份绑定到唯一 user_id。"""
+    """Authenticate the request and bind all business data to the token owner."""
+    supplied = _bearer_token(request)
+    authenticated_user = get_auth_store().authenticate(supplied) if supplied else None
+
+    # Keep explicitly configured legacy API tokens working for CLI/integration users.
     tokens = _configured_user_tokens()
-    if not tokens:
+    if authenticated_user is None and supplied:
+        for uid, expected in tokens.items():
+            if secrets.compare_digest(supplied, expected):
+                authenticated_user = uid
+                break
+
+    if authenticated_user is None and not settings.auth_required and not tokens and not supplied:
         try:
             return validate_identifier(claimed_user_id or "guest", "user_id")
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e)) from e
 
-    auth = request.headers.get("authorization", "")
-    if not auth.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="缺少 Bearer Token")
-    supplied = auth[7:].strip()
-    authenticated_user: Optional[str] = None
-    for uid, expected in tokens.items():
-        if secrets.compare_digest(supplied, expected):
-            authenticated_user = uid
-            break
+    if not supplied:
+        raise HTTPException(status_code=401, detail="请先登录")
     if authenticated_user is None:
-        raise HTTPException(status_code=401, detail="Bearer Token 无效")
+        raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
+
     if claimed_user_id and claimed_user_id != authenticated_user:
         raise HTTPException(status_code=403, detail="user_id 与认证身份不一致")
     return authenticated_user
@@ -191,6 +212,39 @@ def _session_or_http_error(session_id: str, user_id: str):
 
 
 # ============= 路由：基础 =============
+
+
+@app.post("/v1/auth/register")
+def register(req: AuthCredentials) -> Dict[str, Any]:
+    try:
+        session = get_auth_store().register(req.username, req.password)
+    except AuthError as e:
+        detail = str(e)
+        raise HTTPException(status_code=409 if "已存在" in detail else 400, detail=detail) from e
+    return {"status": "ok", **session}
+
+
+@app.post("/v1/auth/login")
+def login(req: AuthCredentials) -> Dict[str, Any]:
+    try:
+        session = get_auth_store().login(req.username, req.password)
+    except AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+    return {"status": "ok", **session}
+
+
+@app.get("/v1/auth/me")
+def current_user(request: Request) -> Dict[str, Any]:
+    user_id = _authorize_user(request, None)
+    return {"authenticated": True, "user_id": user_id}
+
+
+@app.post("/v1/auth/logout")
+def logout(request: Request) -> Dict[str, str]:
+    token = _bearer_token(request)
+    _authorize_user(request, None)
+    get_auth_store().logout(token)
+    return {"status": "ok"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -219,6 +273,7 @@ def health() -> Dict[str, Any]:
         "version": "2.1.0",
         "uptime_seconds": int(time.time() - getattr(app, "_start_time", time.time())),
         "memory_module": True,
+        "auth_required": settings.auth_required,
         "user_memory_enabled": settings.enable_user_memory,
         "user_memory_count": user_memory_count,
         "llm": {
@@ -242,7 +297,12 @@ def get_tools() -> Dict[str, List[str]]:
 def generate(req: GenerateRequest, request: Request) -> GenerateResponse:
     try:
         user_id = _authorize_user(request, req.user_id)
-        resp: FinalResponse = run_workflow(req.raw_input, user_id, req.session_id)
+        resp: FinalResponse = run_workflow(
+            req.raw_input,
+            user_id,
+            req.session_id,
+            run_mode=req.run_mode,
+        )
         return GenerateResponse(
             status="ok" if resp.success else "rejected",
             data=resp.model_dump(),
@@ -288,6 +348,7 @@ async def stream_generate(req: GenerateRequest, request: Request):
             resp = run_workflow_with_events(
                 req.raw_input, user_id,
                 event_callback=_sync_callback, session_id=req.session_id,
+                run_mode=req.run_mode,
             )
             loop_shim["queue"].append({"type": "final", "data": resp.model_dump()})
             done_flag["status"] = "ok" if resp.success else "rejected"
@@ -305,6 +366,7 @@ async def stream_generate(req: GenerateRequest, request: Request):
         yield _format_sse("start", {
             "input": req.raw_input[:200],
             "session_id": req.session_id or "auto",
+            "run_mode": req.run_mode,
         })
         # 轮询队列：一边读一边 flush
         while True:
@@ -386,7 +448,12 @@ def async_generate(req: GenerateRequest, request: Request) -> GenerateResponse:
 
     def _run():
         try:
-            resp = run_workflow(req.raw_input, user_id, req.session_id)
+            resp = run_workflow(
+                req.raw_input,
+                user_id,
+                req.session_id,
+                run_mode=req.run_mode,
+            )
             with _async_tasks_lock:
                 _async_tasks[task_id] = {
                     "status": "ok",
