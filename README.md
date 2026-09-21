@@ -211,8 +211,8 @@ cp .env.example .env          # macOS / Linux
 ```ini
 # 大模型（任选其一，OpenAI 兼容接口即可）
 LLM_API_KEY=sk-your-api-key
-LLM_BASE_URL=https://api.deepseek.com/v1
-LLM_MODEL=deepseek-chat
+LLM_BASE_URL=https://api.deepseek.com#自己可以自行配置
+LLM_MODEL=deepseek-flash#自己可以自行配置
 LLM_TEMPERATURE=0.7
 LLM_TIMEOUT=120
 
