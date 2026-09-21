@@ -1,15 +1,70 @@
-# Drama Multi Agent · 短剧多智能体内容生产系统
+<div align="center">
 
-> English: A multi-agent short-drama content production system built on **FastAPI + LangGraph**. It turns a creative brief into a structured task, retrieves reference materials, drafts & refines the script, and runs a two-track compliance audit — with session memory, a personal memory library, an MCP server, and a real-time web UI.
+<h1>🎬 Drama Multi Agent</h1>
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688)](https://fastapi.tiangolo.com/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-enabled-purple)](https://www.langchain.com/langgraph)
-[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
+<h3>短剧多智能体内容生产系统</h3>
 
----
+<p><strong>把一个创意 Brief，变成可检索、可生成、可审核、可迭代、可沉淀的内容生产流水线。</strong></p>
 
-## 目录
+<p>
+  <a href="https://github.com/puzhen1207/drama-multi-agent1/actions/workflows/ci.yml"><img src="https://github.com/puzhen1207/drama-multi-agent1/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+"></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.110%2B-009688?logo=fastapi&logoColor=white" alt="FastAPI"></a>
+  <a href="https://www.langchain.com/langgraph"><img src="https://img.shields.io/badge/LangGraph-Agent%20Workflow-6C4CF1" alt="LangGraph"></a>
+  <a href="https://vuejs.org/"><img src="https://img.shields.io/badge/Vue.js-3-42B883?logo=vuedotjs&logoColor=white" alt="Vue 3"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F4C430" alt="MIT License"></a>
+</p>
+
+<p>
+  <a href="#快速开始"><b>快速开始</b></a> ·
+  <a href="#系统架构"><b>系统架构</b></a> ·
+  <a href="#web-ui-使用说明"><b>Web UI</b></a> ·
+  <a href="#rest-api"><b>REST API</b></a> ·
+  <a href="#效果评测"><b>效果评测</b></a>
+</p>
+
+</div>
+
+> **English** — A multi-agent short-drama content production system built on **FastAPI + LangGraph**. It turns a creative brief into a structured task, retrieves reference materials, drafts and refines the script, and runs a two-track compliance audit — with session memory, a personal memory library, an MCP server, and a real-time web UI.
+
+<p align="center"><img src="D:/1%E6%B1%82%E8%81%8C/1/drama-multi-agent1/outputs/vue-color-polish-final.png" alt="Drama Multi Agent Web UI" width="820"></p>
+
+<div align="center">
+  <sub>从创意输入到审核交付：实时展示 Agent 执行进度、生成动态、最终内容与合规结果</sub>
+</div>
+
+------
+
+## 项目简介
+
+**Drama Multi Agent** 是一个面向短剧创作场景的多智能体内容生产系统。项目基于 **FastAPI + LangGraph + FAISS + sentence-transformers + OpenAI 兼容大模型接口**，提供从需求解析、素材检索、内容生成、合规审核到会话 / 个人记忆沉淀的一体化工作流。
+
+| 你提供               | 系统执行                                         | 你得到                                 |
+| -------------------- | ------------------------------------------------ | -------------------------------------- |
+| 一段自然语言创作需求 | 按任务路由解析、检索、生成与审核，必要时反思重写 | 可追踪过程、成稿、审核报告与可复用记忆 |
+
+> [!TIP]
+> 没有配置 LLM API Key 也可以启动。系统会自动进入本地 **Stub 模式**，完整跑通 UI、API 与 Agent 工作流，适合开发调试和功能演示。
+
+------
+
+## 核心特性
+
+| 能力                   | 实现                                                | 价值                                       |
+| ---------------------- | --------------------------------------------------- | ------------------------------------------ |
+| 🤖 **多 Agent 工作流**  | Parser、Retriever、Polish、Audit 四类节点协同       | 将复杂创作过程拆成可观测、可调试的执行链   |
+| 🧭 **LangGraph 编排**   | `StateGraph`、条件路由、反思迭代与降级容错          | 质量模式下，审核不通过时按反馈自动重写     |
+| 📚 **RAG 知识检索**     | FAISS + sentence-transformers + 公共素材 / 个人记忆 | 生成前召回相关上下文，提升内容依据与一致性 |
+| 🛡️ **双轨合规审核**     | 规则引擎 + LLM 语义审核                             | 同时覆盖明确违规项与语义风险               |
+| 🧠 **双层记忆系统**     | 会话记忆 + 用户确认后的个人 Q&A 记忆                | 支持多轮创作、用户画像与长期素材复用       |
+| 🖥️ **Vue 可视化工作台** | Vue 3 + TypeScript + Vite + SSE                     | 实时呈现节点状态、事件流、结果和审核报告   |
+| 📊 **效果证据链**       | 节点耗时、Token、失败、检索数与改写差异             | 不只展示结果，还能解释工作流如何运行       |
+| 🧪 **三模式基准评测**   | 120 条固定样本 + 单提示词 / RAG / 完整工作流对照    | 支持稳定回归与工作流增益验证               |
+| ⭐ **人工五维评分**     | 钩子、节奏、人物一致性、可拍摄性、合规性            | 将自动指标与内容质量判断结合               |
+| 🔌 **多端接入**         | Web UI、REST、SSE、CLI、MCP、Docker                 | 覆盖演示、集成、自动化与部署场景           |
+
+<details>
+<summary><b>📚 查看完整文档目录</b></summary>
 
 - [项目简介](#项目简介)
 - [核心特性](#核心特性)
@@ -30,35 +85,17 @@
 - [贡献指南](#贡献指南)
 - [License](#license)
 
----
+</details>
 
-## 项目简介
-
-短剧多智能体内容生产系统。项目基于 **FastAPI + LangGraph + FAISS + sentence-transformers + OpenAI 兼容大模型接口**，提供从需求解析、素材检索、内容生成、合规审核到会话 / 个人记忆沉淀的一体化短剧创作工作流。
-
-如果没有配置 LLM API Key，系统会进入本地 **Stub 模式**，仍可跑通完整流程，适合做 UI 和 API 联调。
-
----
-
-## 核心特性
-
-- **多 Agent 工作流**：任务解析、素材检索、内容润色、合规审核四类节点协同运行。
-- **LangGraph 调度**：使用 `StateGraph` 组织条件路由、审核反馈（反思迭代）与降级容错。
-- **Vue 可视化前端**：基于 Vue 3 + TypeScript + Vite 构建组件化工作台，实时展示 SSE 事件流、节点状态、生成结果和审核报告。
-- **个人记忆库**：用户先预览生成内容，再手动确认是否保存为个人 Q&A 记忆；相似问题会自动召回参考。
-- **会话记忆**：支持多轮对话、用户画像学习、反思日志与会话持久化（JSON）。
-- **知识库检索**：支持将本地素材构建为 FAISS 向量索引，并在生成前召回相关上下文。
-- **合规审核**：规则引擎 + LLM 语义审核双轨并行，审核未通过时触发重写。
-- **效果证据链**：记录节点耗时、Token、失败次数、检索数量和审核修改前后差异。
-- **三模式基准评测**：内置 120 条固定样本，对比单提示词、仅 RAG 与完整工作流。
-- **人工五维评分**：在 Web UI 对钩子、节奏、人物一致性、可拍摄性和合规性评分。
-- **多种调用方式**：Web UI、REST API、SSE 流式接口、CLI、MCP Server、Docker 均可运行。
-
----
+------
 
 ## 系统架构
 
 工作流由 LangGraph `StateGraph` 统一编排，核心是一条带反思回路的有向图：
+
+```text
+创意需求 → 任务解析 → 条件检索 / 分类生成 → 双轨审核 ⇄ 必要时反思重写 → 结果与记忆沉淀
+```
 
 ```mermaid
 flowchart TD
@@ -101,7 +138,7 @@ LangGraph StateGraph
 Final response + audit report + session memory + (可选) 个人记忆召回
 ```
 
----
+------
 
 ## 项目结构
 
@@ -153,7 +190,7 @@ drama-multi-agent/
 └── LICENSE
 ```
 
----
+------
 
 ## 环境要求
 
@@ -163,15 +200,17 @@ drama-multi-agent/
 - 可选：DeepSeek、豆包、OpenAI 或任意 OpenAI 兼容接口的 API Key
 - 可选：Docker / Docker Compose
 
----
+------
 
 ## 快速开始
+
+> 以下四步完成项目与环境准备。随后按[运行服务](#运行服务)中的命令启动 Web UI；首次体验可以暂不配置 LLM Key，使用 Stub 模式验证完整流程。
 
 ### 1. 获取项目
 
 ```bash
-git clone <your-repo-url>
-cd drama-multi-agent
+git clone https://github.com/puzhen1207/drama-multi-agent1.git
+cd drama-multi-agent1
 ```
 
 ### 2. 创建并激活虚拟环境
@@ -211,8 +250,8 @@ cp .env.example .env          # macOS / Linux
 ```ini
 # 大模型（任选其一，OpenAI 兼容接口即可）
 LLM_API_KEY=sk-your-api-key
-LLM_BASE_URL=https://api.deepseek.com#自己可以自行配置
-LLM_MODEL=deepseek-flash#自己可以自行配置
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_MODEL=deepseek-chat
 LLM_TEMPERATURE=0.7
 LLM_TIMEOUT=120
 
@@ -237,7 +276,7 @@ API_PORT=8000
 
 > 未配置 `LLM_API_KEY` 时系统进入 Stub 模式：流程仍可跑通，但生成内容是本地演示结果。
 
----
+------
 
 ## 运行服务
 
@@ -314,7 +353,9 @@ drama-agent mcp
 ### 方式三：PyCharm 运行
 
 1. 使用 PyCharm 打开项目根目录。
+
 2. 解释器选择项目内的虚拟环境：`.venv/Scripts/python.exe`（Windows）或 `.venv/bin/python`（macOS / Linux）。
+
 3. 新建 Python 运行配置：
 
    ```text
@@ -332,7 +373,7 @@ docker compose up -d --build
 
 默认访问 <http://127.0.0.1:8000/>（容器内固定 `8000`，宿主机端口由 `API_PORT` 或 `docker-compose.yml` 映射决定）。
 
----
+------
 
 ## 构建知识库索引
 
@@ -356,9 +397,11 @@ FAISS 索引维度 384 与当前 embedding 1024 不一致
 
 说明当前 embedding 模型与旧索引维度不同，需重新构建索引（同上 `--rebuild`）。
 
----
+------
 
 ## Web UI 使用说明
+
+> **一条需求，四段可视化反馈**：填写创作要求 → 查看 Agent 进度 → 跟踪生成事件 → 检查成稿与审核结果。
 
 访问首页后可完成以下操作：
 
@@ -380,7 +423,7 @@ FAISS 索引维度 384 与当前 embedding 1024 不一致
 - 导出 JSON
 - 导入 JSON
 
----
+------
 
 ## REST API
 
@@ -480,34 +523,34 @@ GET  /v1/async/{task_id}
 
 ### 会话接口
 
-| Method | Path | Description |
-| --- | --- | --- |
-| GET | `/v1/sessions` | 查询会话列表（可按 `user_id` 过滤） |
-| GET | `/v1/sessions/{session_id}` | 查询单个会话 |
-| DELETE | `/v1/sessions/{session_id}` | 删除会话 |
-| POST | `/v1/sessions/{session_id}/writeback` | 将高分内容回写知识库 |
+| Method | Path                                  | Description                         |
+| ------ | ------------------------------------- | ----------------------------------- |
+| GET    | `/v1/sessions`                        | 查询会话列表（可按 `user_id` 过滤） |
+| GET    | `/v1/sessions/{session_id}`           | 查询单个会话                        |
+| DELETE | `/v1/sessions/{session_id}`           | 删除会话                            |
+| POST   | `/v1/sessions/{session_id}/writeback` | 将高分内容回写知识库                |
 
 ### 个人记忆库接口
 
-| Method | Path | Description |
-| --- | --- | --- |
-| GET | `/v1/memory` | 查询个人记忆 |
-| POST | `/v1/memory/save` | 保存问答到个人记忆库 |
-| GET | `/v1/memory/export` | 导出记忆 JSON |
-| POST | `/v1/memory/import` | 导入记忆 JSON |
-| GET | `/v1/memory/{memory_id}` | 获取单条记忆 |
-| PUT | `/v1/memory/{memory_id}` | 更新单条记忆 |
-| DELETE | `/v1/memory/{memory_id}` | 删除单条记忆 |
+| Method | Path                     | Description          |
+| ------ | ------------------------ | -------------------- |
+| GET    | `/v1/memory`             | 查询个人记忆         |
+| POST   | `/v1/memory/save`        | 保存问答到个人记忆库 |
+| GET    | `/v1/memory/export`      | 导出记忆 JSON        |
+| POST   | `/v1/memory/import`      | 导入记忆 JSON        |
+| GET    | `/v1/memory/{memory_id}` | 获取单条记忆         |
+| PUT    | `/v1/memory/{memory_id}` | 更新单条记忆         |
+| DELETE | `/v1/memory/{memory_id}` | 删除单条记忆         |
 
 ### 效果评测接口
 
-| Method | Path | Description |
-| --- | --- | --- |
-| POST | `/v1/evaluations/human` | 提交一次五维人工评分 |
-| GET | `/v1/evaluations/human` | 查询当前用户的人工评分明细 |
-| GET | `/v1/evaluations/summary` | 查询各维度与各模式的平均分 |
+| Method | Path                      | Description                |
+| ------ | ------------------------- | -------------------------- |
+| POST   | `/v1/evaluations/human`   | 提交一次五维人工评分       |
+| GET    | `/v1/evaluations/human`   | 查询当前用户的人工评分明细 |
+| GET    | `/v1/evaluations/summary` | 查询各维度与各模式的平均分 |
 
----
+------
 
 ## MCP 工具
 
@@ -539,7 +582,7 @@ drama-agent mcp
 }
 ```
 
----
+------
 
 ## 测试
 
@@ -563,9 +606,12 @@ API 测试：
 PYTHONPATH=src python scripts/api_test.py http://127.0.0.1:8000
 ```
 
----
+------
 
 ## 效果评测
+
+> [!IMPORTANT]
+> 自动指标用于稳定回归，不等同于内容质量结论。项目同时提供三模式对照、检索评测与人工五维评分，避免只凭单次生成样例判断效果。
 
 `evals/dataset.jsonl` 固定包含 120 条互不重复的样本，覆盖文案、大纲、答疑和审核四类任务。
 90 条生成样本除指令关键词外，还标注 `expected_source_titles` 与 `grounding_terms`，分别衡量
@@ -630,7 +676,7 @@ PYTHONPATH=src python scripts/build_blind_review.py evals/results/evaluation-YYY
 评分人员只接触 `blind-review.jsonl`；完成评分后再使用 `blind-review-key.json` 统计各模式表现，
 避免看到 `single_prompt`、`rag_only` 或 `full_workflow` 名称造成主观偏差。
 
----
+------
 
 ## 常见问题
 
@@ -682,7 +728,7 @@ LLM_BASE_URL=...
 LLM_MODEL=...
 ```
 
----
+------
 
 ## 开发指南
 
@@ -702,7 +748,7 @@ LLM_MODEL=...
 前端源码位于 `web/`，采用 Vue 3 + TypeScript + Vite。修改后在 `web/` 目录执行
 `npm run build`，构建结果会写入 `frontend/index.html`，再刷新 FastAPI 根路径 `/` 即可查看。
 
----
+------
 
 ## Roadmap
 
@@ -712,7 +758,7 @@ LLM_MODEL=...
 - [ ] 更多 LLM 供应商预设（含国产模型一键接入）
 - [ ] 分布式异步任务队列（替换当前线程池实现）
 
----
+------
 
 ## 贡献指南
 
@@ -723,7 +769,7 @@ LLM_MODEL=...
 
 欢迎 Issue 与 PR，也欢迎在讨论区提出使用场景与改进建议。
 
----
+------
 
 ## License
 
